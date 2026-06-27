@@ -247,13 +247,22 @@ Invariati rispetto a PolicyForge e **non negoziabili**:
 
 ---
 
-## 11. Domande aperte
+## 11. Domande aperte — RISOLTE
 
-1. **Rollback / undo**: salviamo lo stato precedente per ogni item modificato (per
-   ripristino)? In v1 almeno per RegistryValue e WindowsService.
-2. **Scoping di sicurezza**: introduciamo "ambiti" che limitano quali chiavi registry /
-   servizi un profilo può toccare (guardrail anti-errore)?
-3. **Conflitti tra profili**: ordine/precedenza quando più profili toccano lo stesso item.
-4. **Targeting HKCU**: la remediation gira come SYSTEM; gli item HKCU/utente richiedono un
-   runner in contesto utente (scheduled task per-user?).
-5. **Visibilità repo**: `PolicyForge` nasce privato; quando renderlo pubblico?
+> Tutte le domande aperte sono state risolte e implementate (2026-06-25).
+
+1. **Rollback / undo** — ✅ *Implementato*. Lo stato precedente di ogni item modificato
+   viene catturato (snapshot inverso) lato client e riportato; UI di audit in `Snapshots.razor`.
+2. **Scoping di sicurezza** — ✅ *Implementato*. `ConfigurationGuardrails` (deny-list anti-footgun)
+   blocca in fase di compile/versioning prefissi registry protetti, servizi critici, delete su
+   `C:\Windows`, task `\Microsoft\Windows`, modifiche al gruppo Administrators. Configurabile via
+   `PolicyForge:Guardrails`.
+3. **Conflitti tra profili** — ✅ *Implementato come warning*. Il compiler rileva item duplicati/
+   sovrapposti e popola `ResolvedConfiguration.Warnings` (non bloccante); mostrati nell'anteprima
+   di compile in `Profiles.razor`.
+4. **Targeting HKCU** — ✅ *Implementato*. Il dispatcher client retargeta gli item user-scope su
+   ogni hive utente caricato (`HKEY_USERS\<sid>`, SID Entra `S-1-12-1-` e on-prem `S-1-5-21-`) durante
+   il passaggio SYSTEM, e registra uno scheduled task per-utente AtLogon (`ApplyUser`) per i profili
+   non caricati / futuri.
+5. **Visibilità repo** — ✅ *Risolto*. Repo **pubblico** con licenza **Apache-2.0**.
+

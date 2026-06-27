@@ -16,7 +16,7 @@
 [![.NET 10](https://img.shields.io/badge/.NET-10.0-purple)](https://dotnet.microsoft.com/)
 [![Azure](https://img.shields.io/badge/Azure-Deployed-blue)](https://azure.microsoft.com/)
 [![Intune](https://img.shields.io/badge/Intune-Proactive%20Remediation-green)](https://learn.microsoft.com/en-us/mem/intune/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 ## 🎯 The Problem
 
@@ -434,7 +434,7 @@ The default Bicep deployment uses development-friendly SKUs. For production scal
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
 ## 🏷️ Keywords
 
