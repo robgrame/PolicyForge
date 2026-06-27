@@ -32,10 +32,18 @@
 
 .PARAMETER Mode
     Detect  - report compliance only (no changes). Exit 1 if any drift is found (Intune detection).
-    Enforce - apply remediations for any drift, then re-test.
+    Enforce - apply remediations for any drift, capture a rollback snapshot, then re-test.
+    Undo    - restore the prior state captured by the most recent (or -SnapshotPath) Enforce snapshot.
 
 .PARAMETER InputJson
     Optional path to a local ResolvedConfiguration JSON file. Bypasses the API call (for testing).
+
+.PARAMETER SnapshotPath
+    Undo mode: explicit snapshot file to restore from. Defaults to the most recent snapshot in
+    %ProgramData%\PolicyForge\snapshots.
+
+.PARAMETER NoSnapshot
+    Enforce mode: skip writing the rollback snapshot (and skip uploading it to the server).
 
 .PARAMETER LogPath
     Optional log file path. Defaults to %ProgramData%\PolicyForge\client.log.
@@ -43,18 +51,26 @@
 .NOTES
     Designed to run as SYSTEM (Intune Proactive Remediation). HKCU / per-user items require a
     user-context runner and are out of scope for the SYSTEM pass.
+
+    Rollback model: before remediating, the dispatcher computes an "inverse instruction" capturing
+    the current state of each drifted item. The inverses form a ResolvedConfiguration that the SAME
+    dispatcher can apply to restore the prior state (Undo mode). Snapshots are stored locally and,
+    when an API base URL is available, uploaded to the server for audit/visibility.
 #>
 [CmdletBinding()]
 param(
     [string]$ApiBaseUrl,
     [string]$DeviceId,
-    [ValidateSet('Detect', 'Enforce')]
+    [ValidateSet('Detect', 'Enforce', 'Undo')]
     [string]$Mode = 'Detect',
     [string]$InputJson,
+    [string]$SnapshotPath,
+    [switch]$NoSnapshot,
     [string]$LogPath = (Join-Path $env:ProgramData 'PolicyForge\client.log')
 )
 
 $ErrorActionPreference = 'Stop'
+$script:SnapshotDir = Join-Path $env:ProgramData 'PolicyForge\snapshots'
 
 # ---------------------------------------------------------------------------------------------
 # Infrastructure
@@ -406,6 +422,123 @@ function Set-LocalGroupMembershipInstruction {
 }
 
 # ---------------------------------------------------------------------------------------------
+# Inverse capture (rollback). Each function returns an instruction object that, when applied by
+# the same dispatcher, restores the item's CURRENT state. Called just BEFORE remediation, so the
+# captured state is the pre-change state. Returns $null when the item cannot be safely snapshotted.
+# ---------------------------------------------------------------------------------------------
+
+function Get-RegistryValueInverse {
+    param($Data, [string]$Action)
+    $path = Resolve-RegPath $Data
+    $name = [string]$Data.name
+
+    $exists = $false; $prevValue = $null; $prevKind = $null
+    if (Test-Path $path) {
+        $item = Get-Item -LiteralPath $path -ErrorAction SilentlyContinue
+        if ($item -and ($item.GetValueNames() -contains $name)) {
+            try { $prevKind = $item.GetValueKind($name); $prevValue = $item.GetValue($name); $exists = $true } catch { }
+        }
+    }
+
+    if ($exists) {
+        $typeStr = switch ([string]$prevKind) {
+            'DWord' { 'Dword' } 'QWord' { 'Qword' } default { [string]$prevKind }
+        }
+        $dataVal = $prevValue
+        if ([string]$prevKind -eq 'Binary') { $dataVal = [Convert]::ToBase64String([byte[]]$prevValue) }
+        return [pscustomobject]@{
+            provider = 'RegistryValue'; action = 'Set'; name = $Data.name
+            data = [pscustomobject]@{ hive = $Data.hive; key = $Data.key; name = $name; type = $typeStr; data = $dataVal }
+        }
+    }
+    # Value/key didn't exist -> inverse removes what Enforce created.
+    return [pscustomobject]@{
+        provider = 'RegistryValue'; action = 'Remove'; name = $Data.name
+        data = [pscustomobject]@{ hive = $Data.hive; key = $Data.key; name = $name }
+    }
+}
+
+function Get-EnvironmentVariableInverse {
+    param($Data, [string]$Action)
+    $scope = Get-EnvScope $Data
+    $prev = [Environment]::GetEnvironmentVariable([string]$Data.name, $scope)
+    if ($null -eq $prev) {
+        return [pscustomobject]@{
+            provider = 'EnvironmentVariable'; action = 'Remove'; name = $Data.name
+            data = [pscustomobject]@{ name = $Data.name; scope = $Data.scope }
+        }
+    }
+    return [pscustomobject]@{
+        provider = 'EnvironmentVariable'; action = 'Set'; name = $Data.name
+        data = [pscustomobject]@{ name = $Data.name; scope = $Data.scope; value = $prev }
+    }
+}
+
+function Get-WindowsServiceInverse {
+    param($Data, [string]$Action)
+    $svc = Get-Service -Name ([string]$Data.name) -ErrorAction SilentlyContinue
+    if ($null -eq $svc) { return $null } # cannot recreate a missing service
+
+    $startMap = @{ 'Automatic' = 'Automatic'; 'Manual' = 'Manual'; 'Disabled' = 'Disabled' }
+    $prevStartup = $startMap[[string]$svc.StartType]; if (-not $prevStartup) { $prevStartup = 'Unchanged' }
+    $prevState = if ($svc.Status -eq 'Running') { 'Running' } elseif ($svc.Status -eq 'Stopped') { 'Stopped' } else { 'Unchanged' }
+    return [pscustomobject]@{
+        provider = 'WindowsService'; action = 'Set'; name = $Data.name
+        data = [pscustomobject]@{ name = $Data.name; startupType = $prevStartup; state = $prevState }
+    }
+}
+
+function Get-ScheduledTaskInverse {
+    param($Data, [string]$Action)
+    $path = [string]$Data.path; if (-not $path) { $path = '\' }
+    $task = Get-ScheduledTask -TaskName ([string]$Data.name) -TaskPath $path -ErrorAction SilentlyContinue
+    if ($null -eq $task) {
+        return [pscustomobject]@{
+            provider = 'ScheduledTask'; action = 'Remove'; name = $Data.name
+            data = [pscustomobject]@{ name = $Data.name; path = $path }
+        }
+    }
+    $prevState = if ($task.State -eq 'Disabled') { 'Disabled' } else { 'Enabled' }
+    return [pscustomobject]@{
+        provider = 'ScheduledTask'; action = 'Set'; name = $Data.name
+        data = [pscustomobject]@{ name = $Data.name; path = $path; state = $prevState }
+    }
+}
+
+function Get-FileResourceInverse {
+    param($Data, [string]$Action)
+    $target = [string]$Data.targetPath
+    if (Test-Path -LiteralPath $target -PathType Leaf) {
+        try {
+            $bytes = [IO.File]::ReadAllBytes($target)
+            if ($bytes.Length -le 1MB) {
+                return [pscustomobject]@{
+                    provider = 'FileResource'; action = 'Set'; name = $Data.name
+                    data = [pscustomobject]@{ targetPath = $target; resourceType = 'File'; contentEncoding = 'Base64'; content = [Convert]::ToBase64String($bytes) }
+                }
+            }
+        } catch { }
+        return $null # too large / unreadable to snapshot safely
+    }
+    if (Test-Path -LiteralPath $target -PathType Container) { return $null } # directory restore non-trivial
+    # Didn't exist -> inverse removes what Enforce created.
+    return [pscustomobject]@{
+        provider = 'FileResource'; action = 'Remove'; name = $Data.name
+        data = [pscustomobject]@{ targetPath = $target; resourceType = [string]$Data.resourceType }
+    }
+}
+
+function Get-LocalGroupMembershipInverse {
+    param($Data, [string]$Action)
+    $group = [string]$Data.group
+    $current = Get-GroupMemberNames -Group $group
+    return [pscustomobject]@{
+        provider = 'LocalGroupMembership'; action = 'Set'; name = $Data.name
+        data = [pscustomobject]@{ group = $group; action = 'Replace'; members = @($current) }
+    }
+}
+
+# ---------------------------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------------------------
 
@@ -416,6 +549,16 @@ $script:Handlers = @{
     'ScheduledTask'        = @{ Test = ${function:Test-ScheduledTaskInstruction};        Apply = ${function:Set-ScheduledTaskInstruction} }
     'FileResource'         = @{ Test = ${function:Test-FileResourceInstruction};         Apply = ${function:Set-FileResourceInstruction} }
     'LocalGroupMembership' = @{ Test = ${function:Test-LocalGroupMembershipInstruction}; Apply = ${function:Set-LocalGroupMembershipInstruction} }
+}
+
+# Inverse capture for rollback. Providers without an inverter cannot be rolled back.
+$script:Inverters = @{
+    'RegistryValue'        = ${function:Get-RegistryValueInverse}
+    'EnvironmentVariable'  = ${function:Get-EnvironmentVariableInverse}
+    'WindowsService'       = ${function:Get-WindowsServiceInverse}
+    'ScheduledTask'        = ${function:Get-ScheduledTaskInverse}
+    'FileResource'         = ${function:Get-FileResourceInverse}
+    'LocalGroupMembership' = ${function:Get-LocalGroupMembershipInverse}
 }
 
 function Invoke-Instruction {
@@ -434,13 +577,117 @@ function Invoke-Instruction {
         if ($compliant) { return New-Result -Instruction $Instruction -Status 'Compliant' }
         if ($Mode -eq 'Detect') { return New-Result -Instruction $Instruction -Status 'Drifted' }
 
+        # Enforce: capture the inverse (pre-change state) BEFORE applying, for rollback.
+        $inverse = $null
+        if (-not $NoSnapshot) {
+            $inverter = $script:Inverters[$provider]
+            if ($inverter) { try { $inverse = & $inverter $data $action } catch { Write-Log "Inverse capture failed for $provider/$($Instruction.name): $($_.Exception.Message)" 'WARN' } }
+        }
+
         & $handler.Apply $data $action
         $recheck = & $handler.Test $data $action
-        if ($recheck) { return New-Result -Instruction $Instruction -Status 'Remediated' }
+        if ($recheck) {
+            $r = New-Result -Instruction $Instruction -Status 'Remediated'
+            $r | Add-Member -NotePropertyName Inverse -NotePropertyValue $inverse -Force
+            return $r
+        }
         return New-Result -Instruction $Instruction -Status 'Error' -Detail 'Re-test failed after apply.'
     } catch {
         return New-Result -Instruction $Instruction -Status 'Error' -Detail $_.Exception.Message
     }
+}
+
+# ---------------------------------------------------------------------------------------------
+# Snapshot / rollback persistence
+# ---------------------------------------------------------------------------------------------
+
+function Write-Snapshot {
+    param([string]$DeviceId, [string]$Hash, $Inverses)
+    $list = @($Inverses | Where-Object { $_ })
+    if ($list.Count -eq 0) { return $null }
+
+    if (-not (Test-Path $script:SnapshotDir)) { New-Item -ItemType Directory -Path $script:SnapshotDir -Force | Out-Null }
+    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $shortHash = if ($Hash) { $Hash.Substring(0, [Math]::Min(8, $Hash.Length)) } else { 'nohash' }
+    $file = Join-Path $script:SnapshotDir ("{0}_{1}.json" -f $stamp, $shortHash)
+
+    # Apply inverses in reverse order of how the forward instructions were applied.
+    [array]::Reverse($list)
+    $snap = [pscustomobject]@{
+        deviceId     = $DeviceId
+        capturedAt   = (Get-Date).ToString('o')
+        forwardHash  = $Hash
+        instructions = $list
+    }
+    $snap | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $file -Encoding UTF8
+    Write-Log "Rollback snapshot written: $file ($($list.Count) item(s))"
+    return $file
+}
+
+function Send-SnapshotToServer {
+    param([string]$File)
+    if (-not $File -or -not $ApiBaseUrl -or $InputJson) { return }
+    try {
+        $body = Get-Content -LiteralPath $File -Raw
+        $uri = "$ApiBaseUrl/api/configuration/snapshots"
+        Invoke-RestMethod -Uri $uri -Method Post -Body $body -ContentType 'application/json' -UseBasicParsing | Out-Null
+        Write-Log "Snapshot uploaded to $uri"
+    } catch {
+        Write-Log "Snapshot upload failed: $($_.Exception.Message)" 'WARN'
+    }
+}
+
+function Resolve-SnapshotFile {
+    if ($SnapshotPath) {
+        if (-not (Test-Path -LiteralPath $SnapshotPath)) { throw "Snapshot file not found: $SnapshotPath" }
+        return $SnapshotPath
+    }
+    if (-not (Test-Path $script:SnapshotDir)) { return $null }
+    $f = Get-ChildItem -Path $script:SnapshotDir -Filter '*.json' -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    return $f.FullName
+}
+
+function Invoke-Undo {
+    $file = Resolve-SnapshotFile
+    if (-not $file) { throw 'No rollback snapshot found to undo.' }
+    Write-Log "Restoring prior state from snapshot: $file"
+    $snap = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
+    $instructions = @($snap.instructions)
+
+    $results = foreach ($instruction in $instructions) {
+        $provider = [string]$instruction.provider
+        $handler = $script:Handlers[$provider]
+        if ($null -eq $handler) { New-Result -Instruction $instruction -Status 'Error' -Detail "No handler for '$provider'."; continue }
+        try {
+            & $handler.Apply $instruction.data ([string]$instruction.action)
+            if (& $handler.Test $instruction.data ([string]$instruction.action)) {
+                New-Result -Instruction $instruction -Status 'Remediated' -Detail 'Restored'
+            } else {
+                New-Result -Instruction $instruction -Status 'Error' -Detail 'Re-test failed after restore.'
+            }
+        } catch {
+            New-Result -Instruction $instruction -Status 'Error' -Detail $_.Exception.Message
+        }
+    }
+    $results = @($results)
+
+    $hadError = @($results | Where-Object { $_.Status -eq 'Error' }).Count -gt 0
+    if (-not $hadError) {
+        $restored = "$file.restored"
+        Move-Item -LiteralPath $file -Destination $restored -Force -ErrorAction SilentlyContinue
+    }
+
+    [pscustomobject]@{
+        DeviceId  = $snap.deviceId
+        Mode      = 'Undo'
+        Snapshot  = $file
+        Compliant = -not $hadError
+        Results   = $results
+    } | ConvertTo-Json -Depth 6
+
+    if ($hadError) { exit 1 }
+    exit 0
 }
 
 function Get-ResolvedConfiguration {
@@ -463,6 +710,9 @@ function Get-ResolvedConfiguration {
 
 try {
     Write-Log "PolicyForge client starting (Mode=$Mode)"
+
+    if ($Mode -eq 'Undo') { Invoke-Undo }
+
     $config = Get-ResolvedConfiguration
     $instructions = @($config.instructions)
     Write-Log "Resolved $($instructions.Count) instruction(s), hash=$($config.hash)"
@@ -473,6 +723,13 @@ try {
     $summary = $results | Group-Object Status | ForEach-Object { "$($_.Name)=$($_.Count)" }
     Write-Log "Result: $($summary -join ', ')"
 
+    # Enforce: persist the rollback snapshot from any remediated items, then upload for audit.
+    if ($Mode -eq 'Enforce' -and -not $NoSnapshot) {
+        $inverses = @($results | Where-Object { $_.Status -eq 'Remediated' -and $_.PSObject.Properties['Inverse'] } | ForEach-Object { $_.Inverse })
+        $snapFile = Write-Snapshot -DeviceId $config.deviceId -Hash $config.hash -Inverses $inverses
+        Send-SnapshotToServer -File $snapFile
+    }
+
     $hasDrift = @($results | Where-Object { $_.Status -in @('Drifted', 'Error') }).Count -gt 0
 
     [pscustomobject]@{
@@ -480,7 +737,7 @@ try {
         Hash        = $config.hash
         Mode        = $Mode
         Compliant   = -not $hasDrift
-        Results     = $results
+        Results     = $results | Select-Object SourceItemId, Provider, Action, Name, Status, Detail
     } | ConvertTo-Json -Depth 6
 
     if ($Mode -eq 'Detect' -and $hasDrift) { exit 1 }
