@@ -1,0 +1,639 @@
+@page "/profiles"
+@attribute [Authorize(Policy = "CanRead")]
+@using System.Text.Json
+@using System.Text.Json.Nodes
+@inject PolicyApiClient Api
+@inject ToastService Toast
+@inject ConfirmService Confirm
+
+<PageTitle>Profili - PolicyForge</PageTitle>
+
+<div class="d-flex align-items-center mb-4">
+    <div class="page-header mb-0">
+        <i class="bi bi-sliders fs-3"></i>
+        <h1 class="h3 mb-0">Profili di configurazione</h1>
+    </div>
+    <button class="btn btn-primary ms-auto" @onclick="() => _showCreate = true">
+        <i class="bi bi-plus-lg me-1"></i> Nuovo profilo
+    </button>
+</div>
+
+@if (_loading)
+{
+    <div class="text-center py-5"><div class="spinner-border text-primary"></div></div>
+}
+else if (_selected is null)
+{
+    @if (_profiles.Count == 0)
+    {
+        <div class="alert alert-light border text-center py-5">
+            <i class="bi bi-inboxes fs-1 d-block mb-2 text-secondary"></i>
+            Nessun profilo. Crea il primo profilo per iniziare a comporre voci di configurazione.
+        </div>
+    }
+    else
+    {
+        <div class="row g-3">
+            @foreach (var p in _profiles)
+            {
+                <div class="col-12 col-md-6 col-lg-4">
+                    <div class="card h-100">
+                        <div class="card-header d-flex align-items-start">
+                            <div>
+                                <h6 class="mb-0">@p.Name</h6>
+                                <small class="text-secondary">@(string.IsNullOrWhiteSpace(p.Description) ? "—" : p.Description)</small>
+                            </div>
+                            <div class="ms-auto d-flex gap-1">
+                                <button class="btn btn-sm btn-outline-primary" title="Apri"
+                                        @onclick="() => OpenProfile(p.Id)"><i class="bi bi-box-arrow-in-right"></i></button>
+                                <button class="btn btn-sm btn-outline-danger" title="Elimina"
+                                        @onclick="() => DeleteProfile(p)"><i class="bi bi-trash"></i></button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="d-flex gap-2 flex-wrap">
+                                <span class="badge text-bg-secondary"><i class="bi bi-layers me-1"></i>@p.VersionCount versioni</span>
+                                @if (!string.IsNullOrWhiteSpace(p.TargetOs))
+                                {
+                                    <span class="badge text-bg-info"><i class="bi bi-windows me-1"></i>@p.TargetOs</span>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+}
+else
+{
+    <button class="btn btn-sm btn-outline-secondary mb-3" @onclick="CloseProfile">
+        <i class="bi bi-arrow-left me-1"></i> Tutti i profili
+    </button>
+
+    <div class="card mb-3">
+        <div class="card-header d-flex align-items-center">
+            <div>
+                <h5 class="mb-0">@_selected.Name</h5>
+                <small class="text-secondary">@_selected.Description</small>
+            </div>
+            <button class="btn btn-primary ms-auto" @onclick="StartAuthoring">
+                <i class="bi bi-plus-lg me-1"></i> Nuova versione
+            </button>
+        </div>
+        <div class="card-body">
+            @if (_selected.Versions.Count == 0)
+            {
+                <p class="text-secondary mb-0">Nessuna versione. Componi la prima versione del profilo.</p>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead><tr><th>Versione</th><th>Stato</th><th>ADMX</th><th>Creata</th><th class="text-end">Azioni</th></tr></thead>
+                        <tbody>
+                            @foreach (var v in _selected.Versions)
+                            {
+                                <tr>
+                                    <td><code>@v.Version</code></td>
+                                    <td>@StatusBadge(v.Status)</td>
+                                    <td>@(string.IsNullOrWhiteSpace(v.AdmxVersion) ? "—" : v.AdmxVersion)</td>
+                                    <td><small>@v.CreatedAt.ToLocalTime().ToString("g")</small></td>
+                                    <td class="text-end">
+                                        <div class="btn-group btn-group-sm">
+                                            <button class="btn btn-outline-secondary" title="Voci" @onclick="() => ToggleItems(v.Id)">
+                                                <i class="bi bi-list-ul"></i>
+                                            </button>
+                                            @if (v.Status == PolicyVersionStatus.Draft)
+                                            {
+                                                <button class="btn btn-outline-success" title="Pubblica" @onclick="() => Publish(v)">
+                                                    <i class="bi bi-cloud-arrow-up"></i>
+                                                </button>
+                                            }
+                                            <button class="btn btn-outline-primary" title="Assegnazioni" @onclick="() => OpenAssignments(v)">
+                                                <i class="bi bi-diagram-3"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                @if (_expandedVersion == v.Id)
+                                {
+                                    <tr>
+                                        <td colspan="5">
+                                            <pre class="bg-body-secondary p-2 rounded small mb-0" style="max-height:300px;overflow:auto;">@PrettyJson(v.ItemsJson)</pre>
+                                        </td>
+                                    </tr>
+                                }
+                                @if (_assignVersion?.Id == v.Id)
+                                {
+                                    <tr>
+                                        <td colspan="5">
+                                            @RenderAssignments()
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+
+    @if (_authoring)
+    {
+        <div class="card mb-3 border-primary">
+            <div class="card-header d-flex align-items-center">
+                <h6 class="mb-0"><i class="bi bi-pencil-square me-1"></i> Comporre nuova versione</h6>
+                <button class="btn btn-sm btn-outline-secondary ms-auto" @onclick="() => _authoring = false">Annulla</button>
+            </div>
+            <div class="card-body">
+                @if (_items.Count == 0)
+                {
+                    <p class="text-secondary">Nessuna voce. Aggiungi voci con i form sottostanti.</p>
+                }
+                else
+                {
+                    <div class="table-responsive mb-3">
+                        <table class="table table-sm align-middle">
+                            <thead><tr><th>Provider</th><th>Nome</th><th>Payload</th><th></th></tr></thead>
+                            <tbody>
+                                @foreach (var it in _items)
+                                {
+                                    <tr>
+                                        <td><span class="badge text-bg-secondary">@it.Provider</span></td>
+                                        <td>@(string.IsNullOrWhiteSpace(it.Name) ? "—" : it.Name)</td>
+                                        <td><code class="small">@Truncate(it.PayloadJson, 80)</code></td>
+                                        <td class="text-end">
+                                            <button class="btn btn-sm btn-outline-danger" @onclick="() => _items.Remove(it)"><i class="bi bi-x-lg"></i></button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+
+                <ul class="nav nav-tabs mb-3">
+                    <li class="nav-item"><button class="nav-link @(_tab == "reg" ? "active" : "")" @onclick='() => _tab = "reg"'>Registro</button></li>
+                    <li class="nav-item"><button class="nav-link @(_tab == "env" ? "active" : "")" @onclick='() => _tab = "env"'>Variabile ambiente</button></li>
+                    <li class="nav-item"><button class="nav-link @(_tab == "raw" ? "active" : "")" @onclick='() => _tab = "raw"'>Avanzato (JSON)</button></li>
+                </ul>
+
+                @if (_tab == "reg")
+                {
+                    <div class="row g-2 mb-2">
+                        <div class="col-6 col-md-2">
+                            <label class="form-label small">Hive</label>
+                            <select class="form-select form-select-sm" @bind="_reg.Hive">
+                                @foreach (var h in new[] { "Hklm", "Hkcu", "Hkcr", "Hku", "Hkcc" }) { <option>@h</option> }
+                            </select>
+                        </div>
+                        <div class="col-12 col-md-5">
+                            <label class="form-label small">Chiave</label>
+                            <input class="form-control form-control-sm" @bind="_reg.Key" placeholder="SOFTWARE\Policies\..." />
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <label class="form-label small">Nome valore</label>
+                            <input class="form-control form-control-sm" @bind="_reg.Name" placeholder="(default)" />
+                        </div>
+                        <div class="col-6 col-md-2">
+                            <label class="form-label small">Tipo</label>
+                            <select class="form-select form-select-sm" @bind="_reg.Type">
+                                @foreach (var t in new[] { "String", "ExpandString", "MultiString", "Dword", "Qword", "Binary" }) { <option>@t</option> }
+                            </select>
+                        </div>
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small">Dato @(_reg.Type == "MultiString" ? "(una riga per valore)" : "")</label>
+                            @if (_reg.Type == "MultiString")
+                            {
+                                <textarea class="form-control form-control-sm" rows="2" @bind="_reg.Data"></textarea>
+                            }
+                            else
+                            {
+                                <input class="form-control form-control-sm" @bind="_reg.Data" />
+                            }
+                        </div>
+                        <div class="col-6 col-md-2">
+                            <label class="form-label small">Stato</label>
+                            <select class="form-select form-select-sm" @bind="_reg.Ensure">
+                                <option>Present</option><option>Absent</option>
+                            </select>
+                        </div>
+                        <div class="col-6 col-md-4">
+                            <label class="form-label small">Nome voce (opz.)</label>
+                            <input class="form-control form-control-sm" @bind="_reg.Label" />
+                        </div>
+                    </div>
+                    <button class="btn btn-sm btn-outline-primary" @onclick="AddRegistry"><i class="bi bi-plus-lg me-1"></i>Aggiungi voce registro</button>
+                }
+                else if (_tab == "env")
+                {
+                    <div class="row g-2 mb-2">
+                        <div class="col-6 col-md-4">
+                            <label class="form-label small">Nome</label>
+                            <input class="form-control form-control-sm" @bind="_env.Name" />
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <label class="form-label small">Scope</label>
+                            <select class="form-select form-select-sm" @bind="_env.Scope">
+                                <option>Machine</option><option>User</option>
+                            </select>
+                        </div>
+                        <div class="col-12 col-md-5">
+                            <label class="form-label small">Valore</label>
+                            <input class="form-control form-control-sm" @bind="_env.Value" />
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <label class="form-label small">Stato</label>
+                            <select class="form-select form-select-sm" @bind="_env.Ensure">
+                                <option>Present</option><option>Absent</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button class="btn btn-sm btn-outline-primary" @onclick="AddEnv"><i class="bi bi-plus-lg me-1"></i>Aggiungi variabile</button>
+                }
+                else
+                {
+                    <div class="row g-2 mb-2">
+                        <div class="col-6 col-md-3">
+                            <label class="form-label small">Provider</label>
+                            <select class="form-select form-select-sm" @bind="_raw.Provider">
+                                @foreach (var pt in _providerTypes) { <option>@pt</option> }
+                            </select>
+                        </div>
+                        <div class="col-6 col-md-4">
+                            <label class="form-label small">Nome voce (opz.)</label>
+                            <input class="form-control form-control-sm" @bind="_raw.Label" />
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small">Payload JSON</label>
+                            <textarea class="form-control form-control-sm font-monospace" rows="5" @bind="_raw.PayloadJson" placeholder='{ "key": "value" }'></textarea>
+                        </div>
+                    </div>
+                    <button class="btn btn-sm btn-outline-primary" @onclick="AddRaw"><i class="bi bi-plus-lg me-1"></i>Aggiungi voce</button>
+                }
+
+                <hr />
+                <div class="row g-2 align-items-end">
+                    <div class="col-6 col-md-3">
+                        <label class="form-label small">Versione ADMX (opz.)</label>
+                        <input class="form-control form-control-sm" @bind="_admxVersion" placeholder="es. 149.0.7827.201" />
+                    </div>
+                    <div class="col-12 col-md-9 d-flex gap-2">
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="CompilePreview" disabled="@(_items.Count == 0)">
+                            <i class="bi bi-magic me-1"></i> Anteprima compilazione
+                        </button>
+                        <button class="btn btn-sm btn-success" @onclick="SaveVersion" disabled="@(_items.Count == 0 || _saving)">
+                            @if (_saving) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                            <i class="bi bi-save me-1"></i> Salva versione
+                        </button>
+                    </div>
+                </div>
+
+                @if (_compileResult is not null)
+                {
+                    <div class="mt-3">
+                        <label class="form-label small text-secondary">Anteprima istruzioni risolte</label>
+                        <pre class="bg-body-secondary p-2 rounded small mb-0" style="max-height:300px;overflow:auto;">@_compileResult</pre>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+}
+
+@if (_showCreate)
+{
+    <div class="modal d-block" tabindex="-1" style="background:rgba(0,0,0,.5);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Nuovo profilo</h5>
+                    <button type="button" class="btn-close" @onclick="() => _showCreate = false"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Nome</label>
+                        <input class="form-control" @bind="_newName" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Descrizione</label>
+                        <textarea class="form-control" rows="2" @bind="_newDescription"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Target OS (opz.)</label>
+                        <input class="form-control" @bind="_newTargetOs" placeholder="es. Windows 11" />
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="() => _showCreate = false">Annulla</button>
+                    <button class="btn btn-primary" @onclick="CreateProfile" disabled="@string.IsNullOrWhiteSpace(_newName)">Crea</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _loading = true;
+    private List<ConfigProfileDto> _profiles = [];
+    private ConfigProfileDetailDto? _selected;
+    private List<string> _providerTypes = [];
+
+    // create profile
+    private bool _showCreate;
+    private string _newName = "";
+    private string _newDescription = "";
+    private string _newTargetOs = "";
+
+    // authoring
+    private bool _authoring;
+    private string _tab = "reg";
+    private readonly List<EditItem> _items = [];
+    private string _admxVersion = "";
+    private string? _compileResult;
+    private bool _saving;
+    private Guid? _expandedVersion;
+
+    private readonly RegForm _reg = new();
+    private readonly EnvForm _env = new();
+    private readonly RawForm _raw = new();
+
+    // assignments
+    private ConfigVersionDto? _assignVersion;
+    private List<ConfigAssignmentDto> _assignments = [];
+    private string _groupQuery = "";
+    private List<EntraGroupDto> _groupResults = [];
+    private int _assignPriority = 100;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadProfiles();
+        try { _providerTypes = await Api.GetProviderTypesAsync(); }
+        catch { _providerTypes = ["AdmxPolicy", "RegistryValue", "WindowsService", "ScheduledTask", "FileResource", "LocalGroupMembership", "EnvironmentVariable"]; }
+        _raw.Provider = _providerTypes.FirstOrDefault() ?? "RegistryValue";
+        _loading = false;
+    }
+
+    private async Task LoadProfiles()
+    {
+        try { _profiles = await Api.GetConfigProfilesAsync(); }
+        catch (Exception ex) { Toast.Error($"Caricamento profili fallito: {ex.Message}"); }
+    }
+
+    private async Task OpenProfile(Guid id)
+    {
+        try { _selected = await Api.GetConfigProfileAsync(id); _authoring = false; _expandedVersion = null; _assignVersion = null; }
+        catch (Exception ex) { Toast.Error($"Apertura profilo fallita: {ex.Message}"); }
+    }
+
+    private void CloseProfile() { _selected = null; _authoring = false; }
+
+    private async Task CreateProfile()
+    {
+        try
+        {
+            await Api.CreateConfigProfileAsync(_newName.Trim(), _newDescription, string.IsNullOrWhiteSpace(_newTargetOs) ? null : _newTargetOs);
+            Toast.Success("Profilo creato");
+            _showCreate = false; _newName = _newDescription = _newTargetOs = "";
+            await LoadProfiles();
+        }
+        catch (Exception ex) { Toast.Error($"Creazione fallita: {ex.Message}"); }
+    }
+
+    private async Task DeleteProfile(ConfigProfileDto p)
+    {
+        if (!await Confirm.ConfirmAsync("Elimina profilo", $"Eliminare '{p.Name}' e tutte le sue versioni?", "Elimina", "Annulla", true))
+            return;
+        try { await Api.DeleteConfigProfileAsync(p.Id); Toast.Success("Profilo eliminato"); await LoadProfiles(); }
+        catch (Exception ex) { Toast.Error($"Eliminazione fallita: {ex.Message}"); }
+    }
+
+    private void StartAuthoring()
+    {
+        _items.Clear(); _compileResult = null; _admxVersion = ""; _authoring = true; _tab = "reg";
+    }
+
+    private void AddRegistry()
+    {
+        if (string.IsNullOrWhiteSpace(_reg.Key)) { Toast.Error("Chiave obbligatoria"); return; }
+        var o = new JsonObject
+        {
+            ["hive"] = _reg.Hive,
+            ["key"] = _reg.Key.Trim(),
+            ["type"] = _reg.Type,
+            ["ensure"] = _reg.Ensure
+        };
+        if (!string.IsNullOrWhiteSpace(_reg.Name)) o["name"] = _reg.Name.Trim();
+        if (_reg.Ensure == "Present") o["data"] = BuildRegData(_reg.Type, _reg.Data);
+        _items.Add(new EditItem { Provider = "RegistryValue", Name = _reg.Label, PayloadJson = o.ToJsonString() });
+        _reg.Reset();
+    }
+
+    private static JsonNode? BuildRegData(string type, string raw) => type switch
+    {
+        "Dword" => JsonValue.Create(long.TryParse(raw, out var d) ? d : 0),
+        "Qword" => JsonValue.Create(long.TryParse(raw, out var q) ? q : 0),
+        "MultiString" => new JsonArray((raw ?? "").Replace("\r", "").Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(s => (JsonNode?)JsonValue.Create(s)).ToArray()),
+        _ => JsonValue.Create(raw ?? "")
+    };
+
+    private void AddEnv()
+    {
+        if (string.IsNullOrWhiteSpace(_env.Name)) { Toast.Error("Nome obbligatorio"); return; }
+        var o = new JsonObject
+        {
+            ["name"] = _env.Name.Trim(),
+            ["scope"] = _env.Scope,
+            ["ensure"] = _env.Ensure
+        };
+        if (_env.Ensure == "Present") o["value"] = _env.Value ?? "";
+        _items.Add(new EditItem { Provider = "EnvironmentVariable", Name = _env.Name.Trim(), PayloadJson = o.ToJsonString() });
+        _env.Reset();
+    }
+
+    private void AddRaw()
+    {
+        if (string.IsNullOrWhiteSpace(_raw.PayloadJson)) { Toast.Error("Payload obbligatorio"); return; }
+        try { JsonNode.Parse(_raw.PayloadJson); }
+        catch (Exception ex) { Toast.Error($"JSON non valido: {ex.Message}"); return; }
+        _items.Add(new EditItem { Provider = _raw.Provider, Name = _raw.Label, PayloadJson = _raw.PayloadJson });
+        _raw.Reset(_providerTypes.FirstOrDefault() ?? "RegistryValue");
+    }
+
+    private object BuildPayload() => new
+    {
+        deviceId = "",
+        items = _items.Select(i => new { id = Guid.NewGuid().ToString("n"), name = string.IsNullOrWhiteSpace(i.Name) ? null : i.Name, provider = i.Provider, payloadJson = i.PayloadJson }).ToArray()
+    };
+
+    private async Task CompilePreview()
+    {
+        try
+        {
+            _compileResult = await Api.CompileConfigAsync(BuildPayload());
+            _compileResult = PrettyJson(_compileResult);
+        }
+        catch (Exception ex) { _compileResult = ex.Message; Toast.Error("Compilazione fallita (vedi anteprima)"); }
+    }
+
+    private async Task SaveVersion()
+    {
+        _saving = true;
+        try
+        {
+            var body = new
+            {
+                admxVersion = string.IsNullOrWhiteSpace(_admxVersion) ? null : _admxVersion,
+                items = _items.Select(i => new { id = Guid.NewGuid().ToString("n"), name = string.IsNullOrWhiteSpace(i.Name) ? null : i.Name, provider = i.Provider, payloadJson = i.PayloadJson }).ToArray()
+            };
+            await Api.CreateConfigVersionAsync(_selected!.Id, body);
+            Toast.Success("Versione creata");
+            _authoring = false;
+            await OpenProfile(_selected.Id);
+        }
+        catch (Exception ex) { Toast.Error($"Salvataggio fallito: {ex.Message}"); }
+        finally { _saving = false; }
+    }
+
+    private async Task Publish(ConfigVersionDto v)
+    {
+        if (!await Confirm.ConfirmAsync("Pubblica versione", $"Pubblicare la versione {v.Version}? Le versioni attive precedenti verranno archiviate.", "Pubblica", "Annulla"))
+            return;
+        try { await Api.PublishConfigVersionAsync(v.Id); Toast.Success("Versione pubblicata"); await OpenProfile(_selected!.Id); }
+        catch (Exception ex) { Toast.Error($"Pubblicazione fallita: {ex.Message}"); }
+    }
+
+    private void ToggleItems(Guid versionId) => _expandedVersion = _expandedVersion == versionId ? null : versionId;
+
+    private async Task OpenAssignments(ConfigVersionDto v)
+    {
+        if (_assignVersion?.Id == v.Id) { _assignVersion = null; return; }
+        _assignVersion = v; _groupQuery = ""; _groupResults = [];
+        try { _assignments = await Api.GetConfigAssignmentsAsync(v.Id); }
+        catch (Exception ex) { Toast.Error($"Caricamento assegnazioni fallito: {ex.Message}"); }
+    }
+
+    private async Task SearchGroups()
+    {
+        if (_groupQuery.Length < 2) { _groupResults = []; return; }
+        try { _groupResults = await Api.SearchGroupsAsync(_groupQuery); }
+        catch (Exception ex) { Toast.Error($"Ricerca gruppi fallita: {ex.Message}"); }
+    }
+
+    private async Task AddAssignment(EntraGroupDto g)
+    {
+        try
+        {
+            await Api.CreateConfigAssignmentAsync(_assignVersion!.Id, g.Id, g.DisplayName, _assignPriority);
+            Toast.Success("Assegnazione creata");
+            _groupQuery = ""; _groupResults = [];
+            _assignments = await Api.GetConfigAssignmentsAsync(_assignVersion.Id);
+        }
+        catch (Exception ex) { Toast.Error($"Assegnazione fallita: {ex.Message}"); }
+    }
+
+    private async Task RemoveAssignment(ConfigAssignmentDto a)
+    {
+        try
+        {
+            await Api.DeleteConfigAssignmentAsync(a.Id);
+            _assignments = await Api.GetConfigAssignmentsAsync(_assignVersion!.Id);
+        }
+        catch (Exception ex) { Toast.Error($"Rimozione fallita: {ex.Message}"); }
+    }
+
+    private RenderFragment RenderAssignments() => __builder =>
+    {
+        <div class="border rounded p-2 bg-body-tertiary">
+            <h6 class="small text-secondary">Assegnazioni — versione @_assignVersion?.Version</h6>
+            @if (_assignments.Count > 0)
+            {
+                <ul class="list-group list-group-flush mb-2">
+                    @foreach (var a in _assignments)
+                    {
+                        <li class="list-group-item d-flex align-items-center bg-transparent px-0 py-1">
+                            <i class="bi bi-people me-2"></i>
+                            <span>@(string.IsNullOrWhiteSpace(a.GroupName) ? a.EntraGroupId : a.GroupName)</span>
+                            <span class="badge text-bg-secondary ms-2">prio @a.Priority</span>
+                            <button class="btn btn-sm btn-outline-danger ms-auto" @onclick="() => RemoveAssignment(a)"><i class="bi bi-x-lg"></i></button>
+                        </li>
+                    }
+                </ul>
+            }
+            <div class="input-group input-group-sm" style="max-width:480px;">
+                <input class="form-control" placeholder="Cerca gruppo Entra..." @bind="_groupQuery" @bind:event="oninput" @onkeyup="SearchGroups" />
+                <span class="input-group-text">prio</span>
+                <input type="number" class="form-control" style="max-width:80px;" @bind="_assignPriority" />
+            </div>
+            @if (_groupResults.Count > 0)
+            {
+                <div class="list-group mt-1" style="max-width:480px;">
+                    @foreach (var g in _groupResults)
+                    {
+                        <button class="list-group-item list-group-item-action py-1" @onclick="() => AddAssignment(g)">
+                            <i class="bi bi-plus-circle me-1"></i> @g.DisplayName
+                        </button>
+                    }
+                </div>
+            }
+        </div>
+    };
+
+    private static RenderFragment StatusBadge(PolicyVersionStatus s) => __builder =>
+    {
+        var (cls, txt) = s switch
+        {
+            PolicyVersionStatus.Active => ("text-bg-success", "Attiva"),
+            PolicyVersionStatus.Archived => ("text-bg-secondary", "Archiviata"),
+            _ => ("text-bg-warning", "Bozza")
+        };
+        <span class="badge @cls">@txt</span>
+    };
+
+    private static string Truncate(string s, int n) => string.IsNullOrEmpty(s) || s.Length <= n ? s : s[..n] + "…";
+
+    private static string PrettyJson(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return "";
+        try { return JsonSerializer.Serialize(JsonNode.Parse(json), new JsonSerializerOptions { WriteIndented = true }); }
+        catch { return json; }
+    }
+
+    private sealed class EditItem
+    {
+        public string Provider { get; set; } = "RegistryValue";
+        public string? Name { get; set; }
+        public string PayloadJson { get; set; } = "{}";
+    }
+
+    private sealed class RegForm
+    {
+        public string Hive { get; set; } = "Hklm";
+        public string Key { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string Type { get; set; } = "String";
+        public string Data { get; set; } = "";
+        public string Ensure { get; set; } = "Present";
+        public string Label { get; set; } = "";
+        public void Reset() { Key = Name = Data = Label = ""; Type = "String"; Ensure = "Present"; }
+    }
+
+    private sealed class EnvForm
+    {
+        public string Name { get; set; } = "";
+        public string Scope { get; set; } = "Machine";
+        public string Value { get; set; } = "";
+        public string Ensure { get; set; } = "Present";
+        public void Reset() { Name = Value = ""; Scope = "Machine"; Ensure = "Present"; }
+    }
+
+    private sealed class RawForm
+    {
+        public string Provider { get; set; } = "RegistryValue";
+        public string Label { get; set; } = "";
+        public string PayloadJson { get; set; } = "";
+        public void Reset(string provider) { Provider = provider; Label = PayloadJson = ""; }
+    }
+}

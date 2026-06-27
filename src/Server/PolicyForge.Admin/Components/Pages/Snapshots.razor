@@ -1,0 +1,106 @@
+@page "/snapshots"
+@attribute [Authorize(Policy = "CanRead")]
+@using System.Text.Json
+@using System.Text.Json.Nodes
+@inject PolicyApiClient Api
+@inject ToastService Toast
+
+<PageTitle>Rollback - PolicyForge</PageTitle>
+
+<div class="d-flex align-items-center mb-4">
+    <div class="page-header mb-0">
+        <i class="bi bi-arrow-counterclockwise fs-3"></i>
+        <h1 class="h3 mb-0">Snapshot di rollback</h1>
+    </div>
+    <div class="ms-auto input-group" style="max-width:360px;">
+        <input class="form-control" placeholder="Filtra per deviceId..." @bind="_deviceFilter" @onkeyup="OnFilterKey" />
+        <button class="btn btn-outline-primary" @onclick="Load"><i class="bi bi-search"></i></button>
+    </div>
+</div>
+
+<p class="text-secondary small">
+    Ogni snapshot contiene le istruzioni <em>inverse</em> catturate dal client prima di applicare una
+    correzione (Enforce). Permettono il ripristino dello stato precedente eseguendo il dispatcher in modalità <code>Undo</code>.
+</p>
+
+@if (_loading)
+{
+    <div class="text-center py-5"><div class="spinner-border text-primary"></div></div>
+}
+else if (_snapshots.Count == 0)
+{
+    <div class="alert alert-light border text-center py-5">
+        <i class="bi bi-inboxes fs-1 d-block mb-2 text-secondary"></i>
+        Nessuno snapshot registrato.
+    </div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-sm align-middle">
+            <thead><tr><th>Device</th><th>Hash forward</th><th>Voci</th><th>Catturato</th><th>Ricevuto</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var s in _snapshots)
+                {
+                    <tr>
+                        <td><code class="small">@s.DeviceId</code></td>
+                        <td><code class="small">@Short(s.ForwardHash)</code></td>
+                        <td><span class="badge text-bg-secondary">@s.ItemCount</span></td>
+                        <td><small>@s.CapturedAt.ToLocalTime().ToString("g")</small></td>
+                        <td><small>@s.ReceivedAt.ToLocalTime().ToString("g")</small></td>
+                        <td class="text-end">
+                            <button class="btn btn-sm btn-outline-primary" @onclick="() => ViewDetail(s.Id)">
+                                <i class="bi bi-eye"></i>
+                            </button>
+                        </td>
+                    </tr>
+                    @if (_expanded == s.Id)
+                    {
+                        <tr>
+                            <td colspan="6">
+                                <pre class="bg-body-secondary p-2 rounded small mb-0" style="max-height:340px;overflow:auto;">@_detailJson</pre>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private bool _loading = true;
+    private List<SnapshotDto> _snapshots = [];
+    private string _deviceFilter = "";
+    private Guid? _expanded;
+    private string _detailJson = "";
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        _loading = true;
+        try { _snapshots = await Api.GetSnapshotsAsync(string.IsNullOrWhiteSpace(_deviceFilter) ? null : _deviceFilter.Trim()); }
+        catch (Exception ex) { Toast.Error($"Caricamento snapshot fallito: {ex.Message}"); }
+        finally { _loading = false; }
+    }
+
+    private async Task OnFilterKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await Load();
+    }
+
+    private async Task ViewDetail(Guid id)
+    {
+        if (_expanded == id) { _expanded = null; return; }
+        try
+        {
+            var json = await Api.GetSnapshotJsonAsync(id);
+            _detailJson = JsonSerializer.Serialize(JsonNode.Parse(json), new JsonSerializerOptions { WriteIndented = true });
+            _expanded = id;
+        }
+        catch (Exception ex) { Toast.Error($"Dettaglio non disponibile: {ex.Message}"); }
+    }
+
+    private static string Short(string? h) => string.IsNullOrEmpty(h) ? "—" : (h.Length > 12 ? h[..12] + "…" : h);
+}
