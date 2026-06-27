@@ -4,7 +4,7 @@
 @inject ToastService Toast
 @inject ConfirmService Confirm
 
-<PageTitle>Policies - Chrome Policy Manager</PageTitle>
+<PageTitle>Policies - PolicyForge</PageTitle>
 
 <div class="d-flex align-items-center mb-4">
     <div class="page-header mb-0">
@@ -53,8 +53,8 @@ else
                                             <td>
                                                 @if (!string.IsNullOrEmpty(v.AdmxVersion))
                                                 {
-                                                    <span class="badge text-bg-light border" title="Chrome ADMX template version this policy was authored against">
-                                                        <i class="bi bi-google me-1"></i>@v.AdmxVersion
+                                                    <span class="badge text-bg-light border" title="ADMX template version this policy was authored against">
+                                                        <i class="bi bi-tag me-1"></i>@v.AdmxVersion
                                                     </span>
                                                 }
                                                 else
