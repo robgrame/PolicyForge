@@ -239,6 +239,79 @@ public class PolicyApiClient
             throw new HttpRequestException($"Save failed ({(int)response.StatusCode}): {body}");
         }
     }
+
+    // === Configuration profiles (generic provider engine) ===
+    public async Task<List<ConfigProfileDto>> GetConfigProfilesAsync() =>
+        await _http.GetFromJsonAsync<List<ConfigProfileDto>>("/api/configuration/profiles/", JsonOptions) ?? [];
+
+    public async Task<ConfigProfileDetailDto?> GetConfigProfileAsync(Guid id) =>
+        await _http.GetFromJsonAsync<ConfigProfileDetailDto>($"/api/configuration/profiles/{id}", JsonOptions);
+
+    public async Task<Guid> CreateConfigProfileAsync(string name, string? description, string? targetOs)
+    {
+        var response = await _http.PostAsJsonAsync("/api/configuration/profiles/", new { name, description, targetOs });
+        await EnsureSuccess(response);
+        var created = await response.Content.ReadFromJsonAsync<IdResponse>(JsonOptions);
+        return created?.Id ?? Guid.Empty;
+    }
+
+    public async Task DeleteConfigProfileAsync(Guid id) =>
+        await EnsureSuccess(await _http.DeleteAsync($"/api/configuration/profiles/{id}"));
+
+    public async Task CreateConfigVersionAsync(Guid profileId, object body) =>
+        await EnsureSuccess(await _http.PostAsJsonAsync($"/api/configuration/profiles/{profileId}/versions", body));
+
+    public async Task PublishConfigVersionAsync(Guid versionId) =>
+        await EnsureSuccess(await _http.PostAsync($"/api/configuration/profiles/versions/{versionId}/publish", null));
+
+    public async Task<List<string>> GetProviderTypesAsync() =>
+        await _http.GetFromJsonAsync<List<string>>("/api/configuration/providers", JsonOptions) ?? [];
+
+    /// <summary>Compile authored items into a ResolvedConfiguration (preview). Returns raw JSON.</summary>
+    public async Task<string> CompileConfigAsync(object body)
+    {
+        var response = await _http.PostAsJsonAsync("/api/configuration/compile", body);
+        var json = await response.Content.ReadAsStringAsync();
+        if (!response.IsSuccessStatusCode)
+            throw new HttpRequestException($"Compile failed ({(int)response.StatusCode}): {json}");
+        return json;
+    }
+
+    public async Task<List<ConfigAssignmentDto>> GetConfigAssignmentsAsync(Guid versionId) =>
+        await _http.GetFromJsonAsync<List<ConfigAssignmentDto>>(
+            $"/api/configuration/profiles/versions/{versionId}/assignments", JsonOptions) ?? [];
+
+    public async Task CreateConfigAssignmentAsync(Guid versionId, string entraGroupId, string groupName, int priority) =>
+        await EnsureSuccess(await _http.PostAsJsonAsync(
+            $"/api/configuration/profiles/versions/{versionId}/assignments",
+            new { entraGroupId, groupName, priority }));
+
+    public async Task DeleteConfigAssignmentAsync(Guid assignmentId) =>
+        await EnsureSuccess(await _http.DeleteAsync($"/api/configuration/profiles/assignments/{assignmentId}"));
+
+    // === Rollback snapshots (audit) ===
+    public async Task<List<SnapshotDto>> GetSnapshotsAsync(string? deviceId = null, int take = 50)
+    {
+        var url = $"/api/configuration/snapshots?take={take}";
+        if (!string.IsNullOrWhiteSpace(deviceId)) url += $"&deviceId={Uri.EscapeDataString(deviceId)}";
+        return await _http.GetFromJsonAsync<List<SnapshotDto>>(url, JsonOptions) ?? [];
+    }
+
+    public async Task<string> GetSnapshotJsonAsync(Guid id)
+    {
+        var response = await _http.GetAsync($"/api/configuration/snapshots/{id}");
+        var json = await response.Content.ReadAsStringAsync();
+        if (!response.IsSuccessStatusCode)
+            throw new HttpRequestException($"Snapshot fetch failed ({(int)response.StatusCode}): {json}");
+        return json;
+    }
+
+    private static async Task EnsureSuccess(HttpResponseMessage response)
+    {
+        if (response.IsSuccessStatusCode) return;
+        var body = await response.Content.ReadAsStringAsync();
+        throw new HttpRequestException($"Request failed ({(int)response.StatusCode}): {body}");
+    }
 }
 
 // === DTOs ===
@@ -413,4 +486,64 @@ public class CaCertificateDto
     public string Base64 { get; set; } = "";
     public bool IsRoot { get; set; }
     public DateTime NotAfter { get; set; }
+}
+
+// === Configuration profile DTOs ===
+public class IdResponse
+{
+    public Guid Id { get; set; }
+}
+
+public class ConfigProfileDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "";
+    public string? Description { get; set; }
+    public string? TargetOs { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+    public int VersionCount { get; set; }
+}
+
+public class ConfigProfileDetailDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "";
+    public string? Description { get; set; }
+    public string? TargetOs { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+    public List<ConfigVersionDto> Versions { get; set; } = [];
+}
+
+public class ConfigVersionDto
+{
+    public Guid Id { get; set; }
+    public string Version { get; set; } = "";
+    public string? Hash { get; set; }
+    public string? AdmxVersion { get; set; }
+    public PolicyVersionStatus Status { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public string? CreatedBy { get; set; }
+    public string? ItemsJson { get; set; }
+}
+
+public class ConfigAssignmentDto
+{
+    public Guid Id { get; set; }
+    public string EntraGroupId { get; set; } = "";
+    public string? GroupName { get; set; }
+    public int Priority { get; set; }
+    public bool Enabled { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+
+public class SnapshotDto
+{
+    public Guid Id { get; set; }
+    public string DeviceId { get; set; } = "";
+    public string? ForwardHash { get; set; }
+    public DateTime CapturedAt { get; set; }
+    public int ItemCount { get; set; }
+    public DateTime ReceivedAt { get; set; }
 }
