@@ -31,9 +31,11 @@
     Entra device registration id (from dsregcmd). Defaults to the value reported by dsregcmd.
 
 .PARAMETER Mode
-    Detect  - report compliance only (no changes). Exit 1 if any drift is found (Intune detection).
-    Enforce - apply remediations for any drift, capture a rollback snapshot, then re-test.
-    Undo    - restore the prior state captured by the most recent (or -SnapshotPath) Enforce snapshot.
+    Detect    - report compliance only (no changes). Exit 1 if any drift is found (Intune detection).
+    Enforce   - apply remediations for any drift, capture a rollback snapshot, then re-test.
+    Undo      - restore the prior state captured by the most recent (or -SnapshotPath) Enforce snapshot.
+    ApplyUser - internal: apply the staged user-scope configuration in the current user's context
+                (invoked by the per-user logon scheduled task registered during an Enforce pass).
 
 .PARAMETER InputJson
     Optional path to a local ResolvedConfiguration JSON file. Bypasses the API call (for testing).
@@ -42,6 +44,10 @@
     Undo mode: explicit snapshot file to restore from. Defaults to the most recent snapshot in
     %ProgramData%\PolicyForge\snapshots.
 
+.PARAMETER UserScopePath
+    Path of the staged user-scope ResolvedConfiguration consumed by ApplyUser mode. Defaults to
+    %ProgramData%\PolicyForge\user-scope.json.
+
 .PARAMETER NoSnapshot
     Enforce mode: skip writing the rollback snapshot (and skip uploading it to the server).
 
@@ -49,8 +55,13 @@
     Optional log file path. Defaults to %ProgramData%\PolicyForge\client.log.
 
 .NOTES
-    Designed to run as SYSTEM (Intune Proactive Remediation). HKCU / per-user items require a
-    user-context runner and are out of scope for the SYSTEM pass.
+    Designed to run as SYSTEM (Intune Proactive Remediation). User-scope items (HKCU registry and
+    per-user environment variables) cannot be applied to the right profile from the SYSTEM context.
+    The dispatcher handles them two ways:
+      1. Immediately, for every currently-loaded user hive, by retargeting the instruction to
+         HKEY_USERS\<sid> (so logged-in users converge during the SYSTEM pass).
+      2. For future logons / not-loaded profiles, by staging the user-scope config and registering a
+         per-user logon scheduled task that re-runs this script in ApplyUser mode (user context).
 
     Rollback model: before remediating, the dispatcher computes an "inverse instruction" capturing
     the current state of each drifted item. The inverses form a ResolvedConfiguration that the SAME
@@ -61,10 +72,11 @@
 param(
     [string]$ApiBaseUrl,
     [string]$DeviceId,
-    [ValidateSet('Detect', 'Enforce', 'Undo')]
+    [ValidateSet('Detect', 'Enforce', 'Undo', 'ApplyUser')]
     [string]$Mode = 'Detect',
     [string]$InputJson,
     [string]$SnapshotPath,
+    [string]$UserScopePath = (Join-Path $env:ProgramData 'PolicyForge\user-scope.json'),
     [switch]$NoSnapshot,
     [string]$LogPath = (Join-Path $env:ProgramData 'PolicyForge\client.log')
 )
@@ -118,7 +130,11 @@ function New-Result {
 # ---------------------------------------------------------------------------------------------
 
 $script:HiveDriveMap = @{
-    'Hklm' = 'HKLM:'; 'Hkcu' = 'HKCU:'; 'Hkcr' = 'HKCR:'; 'Hku' = 'HKU:'; 'Hkcc' = 'HKCC:'
+    'Hklm' = 'Registry::HKEY_LOCAL_MACHINE'
+    'Hkcu' = 'Registry::HKEY_CURRENT_USER'
+    'Hkcr' = 'Registry::HKEY_CLASSES_ROOT'
+    'Hku'  = 'Registry::HKEY_USERS'
+    'Hkcc' = 'Registry::HKEY_CURRENT_CONFIG'
 }
 $script:RegKindMap = @{
     'String' = 'String'; 'ExpandString' = 'ExpandString'; 'MultiString' = 'MultiString'
@@ -705,6 +721,170 @@ function Get-ResolvedConfiguration {
 }
 
 # ---------------------------------------------------------------------------------------------
+# User-scope handling (HKCU registry + per-user environment variables)
+#
+# The SYSTEM context cannot target a user's HKCU/profile directly. We converge user-scope items
+# by (1) retargeting them onto every currently-loaded user hive (HKEY_USERS\<sid>) during the
+# SYSTEM pass and (2) staging them for a per-user logon scheduled task (ApplyUser mode) so that
+# not-loaded and future profiles also converge.
+# ---------------------------------------------------------------------------------------------
+
+function Test-IsSystem {
+    try {
+        $id = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+        return ($id.User.Value -eq 'S-1-5-18')
+    } catch { return $false }
+}
+
+function Test-IsUserScopeInstruction {
+    param($Instruction)
+    $provider = [string]$Instruction.provider
+    $data = $Instruction.data
+    if ($provider -eq 'RegistryValue' -and ([string]$data.hive -eq 'Hkcu')) { return $true }
+    if ($provider -eq 'EnvironmentVariable' -and ([string]$data.scope -eq 'User')) { return $true }
+    return $false
+}
+
+function Get-LoadedUserSid {
+    # Real, interactive user profiles currently loaded under HKEY_USERS (exclude system + _Classes).
+    # Includes both on-prem AD/local SIDs (S-1-5-21-...) and Entra ID / Azure AD SIDs (S-1-12-1-...).
+    Get-ChildItem 'Registry::HKEY_USERS' -ErrorAction SilentlyContinue |
+        ForEach-Object { $_.PSChildName } |
+        Where-Object { $_ -match '^(S-1-5-21-|S-1-12-1-)' -and $_ -notmatch '_Classes$' }
+}
+
+function Copy-Instruction {
+    param($Instruction)
+    return ($Instruction | ConvertTo-Json -Depth 10 | ConvertFrom-Json)
+}
+
+function ConvertTo-UserHiveInstruction {
+    # Retarget a user-scope instruction onto a specific loaded user hive (HKEY_USERS\<sid>).
+    param($Instruction, [string]$Sid)
+    $provider = [string]$Instruction.provider
+    $data = $Instruction.data
+    $action = [string]$Instruction.action
+    $label = [string]$Instruction.name
+
+    if ($provider -eq 'RegistryValue') {
+        $clone = Copy-Instruction $Instruction
+        $clone.data.hive = 'Hku'
+        $clone.data.key = "$Sid\" + ([string]$data.key).TrimStart('\')
+        $clone.name = if ($label) { "$label [user $Sid]" } else { "[user $Sid]" }
+        return $clone
+    }
+
+    if ($provider -eq 'EnvironmentVariable') {
+        # Per-user env vars live in HKEY_USERS\<sid>\Environment as registry values.
+        $regData = [pscustomobject]@{
+            hive   = 'Hku'
+            key    = "$Sid\Environment"
+            name   = [string]$data.name
+            type   = 'String'
+            data   = [string]$data.value
+            ensure = if ($action -eq 'Remove') { 'Absent' } else { 'Present' }
+        }
+        return [pscustomobject]@{
+            provider     = 'RegistryValue'
+            action       = $action
+            data         = $regData
+            sourceItemId = $Instruction.sourceItemId
+            name         = if ($label) { "$label [user $Sid]" } else { "[user $Sid]" }
+        }
+    }
+
+    return $Instruction
+}
+
+function Expand-UserScopeForLoadedUsers {
+    # Replace each user-scope instruction with one retargeted instruction per loaded user hive.
+    param($Instructions)
+    $sids = @(Get-LoadedUserSid)
+    $expanded = New-Object System.Collections.Generic.List[object]
+    foreach ($i in $Instructions) {
+        if (Test-IsUserScopeInstruction $i) {
+            if ($sids.Count -eq 0) {
+                Write-Log "User-scope item '$($i.name)' has no loaded user hive to apply to now; deferred to logon task." 'WARN'
+                continue
+            }
+            foreach ($sid in $sids) { $expanded.Add((ConvertTo-UserHiveInstruction -Instruction $i -Sid $sid)) }
+        } else {
+            $expanded.Add($i)
+        }
+    }
+    return $expanded
+}
+
+function Save-StableScriptCopy {
+    # Intune runs the script from a transient path; the logon task needs a stable on-disk copy.
+    $dir = Join-Path $env:ProgramData 'PolicyForge'
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+    $dest = Join-Path $dir 'Invoke-PolicyForgeRemediation.ps1'
+    try {
+        if ($PSCommandPath -and (Test-Path $PSCommandPath) -and
+            ((Resolve-Path $PSCommandPath).Path -ne (Resolve-Path -LiteralPath $dest -ErrorAction SilentlyContinue).Path)) {
+            Copy-Item -LiteralPath $PSCommandPath -Destination $dest -Force
+        }
+    } catch { Write-Log "Could not copy script to stable path: $($_.Exception.Message)" 'WARN' }
+    return $dest
+}
+
+function Save-UserScopeConfig {
+    param([string]$DeviceId, [string]$Hash, $UserInstructions)
+    $dir = Split-Path -Parent $UserScopePath
+    if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+    [pscustomobject]@{
+        deviceId     = $DeviceId
+        hash         = $Hash
+        instructions = @($UserInstructions)
+    } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $UserScopePath -Encoding UTF8
+    Write-Log "Staged user-scope config ($(@($UserInstructions).Count) item(s)) at $UserScopePath"
+}
+
+function Register-UserScopeLogonTask {
+    param([string]$ScriptPath)
+    $taskName = 'PolicyForge User Apply'
+    try {
+        $action = New-ScheduledTaskAction -Execute 'powershell.exe' `
+            -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ScriptPath`" -Mode ApplyUser -UserScopePath `"$UserScopePath`""
+        $trigger = New-ScheduledTaskTrigger -AtLogOn
+        # Run in the context of any interactive user (BUILTIN\Users), with their (limited) token.
+        $principal = New-ScheduledTaskPrincipal -GroupId 'S-1-5-32-545' -RunLevel Limited
+        $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+        $task = New-ScheduledTask -Action $action -Trigger $trigger -Principal $principal -Settings $settings `
+            -Description 'Applies PolicyForge user-scope configuration at logon.'
+        Register-ScheduledTask -TaskName $taskName -InputObject $task -Force | Out-Null
+        Write-Log "Registered per-user logon task '$taskName' -> $ScriptPath"
+    } catch {
+        Write-Log "Failed to register per-user logon task: $($_.Exception.Message)" 'WARN'
+    }
+}
+
+function Invoke-ApplyUser {
+    # Runs in the actual user's context (logon task): HKCU and User env target the right profile.
+    if (-not (Test-Path -LiteralPath $UserScopePath)) {
+        Write-Log "No staged user-scope config at $UserScopePath; nothing to apply." 'WARN'
+        exit 0
+    }
+    $cfg = Get-Content -LiteralPath $UserScopePath -Raw | ConvertFrom-Json
+    $instructions = @($cfg.instructions)
+    Write-Log "ApplyUser: $($instructions.Count) user-scope instruction(s) as $($env:USERNAME)"
+
+    $results = foreach ($i in $instructions) { Invoke-Instruction -Instruction $i -Mode 'Enforce' }
+    $results = @($results)
+    $summary = $results | Group-Object Status | ForEach-Object { "$($_.Name)=$($_.Count)" }
+    Write-Log "ApplyUser result: $($summary -join ', ')"
+
+    [pscustomobject]@{
+        Mode      = 'ApplyUser'
+        User      = $env:USERNAME
+        Compliant = (@($results | Where-Object { $_.Status -eq 'Error' }).Count -eq 0)
+        Results   = $results | Select-Object SourceItemId, Provider, Action, Name, Status, Detail
+    } | ConvertTo-Json -Depth 6
+    exit 0
+}
+
+# ---------------------------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------------------------
 
@@ -712,10 +892,24 @@ try {
     Write-Log "PolicyForge client starting (Mode=$Mode)"
 
     if ($Mode -eq 'Undo') { Invoke-Undo }
+    if ($Mode -eq 'ApplyUser') { Invoke-ApplyUser }
 
     $config = Get-ResolvedConfiguration
-    $instructions = @($config.instructions)
-    Write-Log "Resolved $($instructions.Count) instruction(s), hash=$($config.hash)"
+    $rawInstructions = @($config.instructions)
+    Write-Log "Resolved $($rawInstructions.Count) instruction(s), hash=$($config.hash)"
+
+    $userScopeItems = @($rawInstructions | Where-Object { Test-IsUserScopeInstruction $_ })
+    $runningAsSystem = Test-IsSystem
+
+    # Build the effective instruction set actually executed in this (SYSTEM or user) context.
+    if ($runningAsSystem -and $userScopeItems.Count -gt 0) {
+        Write-Log "$($userScopeItems.Count) user-scope item(s); running as SYSTEM -> retargeting loaded hives + staging logon task."
+        $instructions = @(Expand-UserScopeForLoadedUsers $rawInstructions)
+    } else {
+        # Either no user-scope items, or already running in a user context (HKCU resolves correctly).
+        $instructions = $rawInstructions
+    }
+    Write-Log "Executing $($instructions.Count) effective instruction(s)"
 
     $results = foreach ($instruction in $instructions) { Invoke-Instruction -Instruction $instruction -Mode $Mode }
     $results = @($results)
@@ -728,6 +922,14 @@ try {
         $inverses = @($results | Where-Object { $_.Status -eq 'Remediated' -and $_.PSObject.Properties['Inverse'] } | ForEach-Object { $_.Inverse })
         $snapFile = Write-Snapshot -DeviceId $config.deviceId -Hash $config.hash -Inverses $inverses
         Send-SnapshotToServer -File $snapFile
+    }
+
+    # Enforce as SYSTEM: stage user-scope items and (re)register the per-user logon task so that
+    # not-currently-loaded and future user profiles converge too.
+    if ($Mode -eq 'Enforce' -and $runningAsSystem -and $userScopeItems.Count -gt 0) {
+        Save-UserScopeConfig -DeviceId $config.deviceId -Hash $config.hash -UserInstructions $userScopeItems
+        $stableScript = Save-StableScriptCopy
+        Register-UserScopeLogonTask -ScriptPath $stableScript
     }
 
     $hasDrift = @($results | Where-Object { $_.Status -in @('Drifted', 'Error') }).Count -gt 0
