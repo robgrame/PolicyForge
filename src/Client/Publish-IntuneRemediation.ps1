@@ -26,7 +26,7 @@
 [CmdletBinding()]
 param(
     [string]$DisplayName = "Chrome Policy Manager - Remediation",
-    [string]$Description = "Detects Chrome policy drift against the Chrome Policy Manager API and remediates the local registry. Managed by ChromePolicyManager.",
+    [string]$Description = "Detects Chrome policy drift against the Chrome Policy Manager API and remediates the local registry. Managed by PolicyForge.",
     [string]$Publisher   = "Chrome Policy Manager",
     [string]$ScriptDir   = $PSScriptRoot,
     [string]$DetectScript    = "Detect-ChromePolicy.ps1",

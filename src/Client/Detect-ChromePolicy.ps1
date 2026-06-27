@@ -18,7 +18,7 @@
 .NOTES
     Requires: 64-bit PowerShell execution
     Registry: HKLM\SOFTWARE\Policies\Google\Chrome
-    Manifest: HKLM\SOFTWARE\ChromePolicyManager\Manifest
+    Manifest: HKLM\SOFTWARE\PolicyForge\Manifest
 #>
 
 #Requires -RunAsAdministrator
@@ -60,16 +60,16 @@ $EnableInlineRemediation = $true
 # Paths
 $ChromePolicyPath = "HKLM:\SOFTWARE\Policies\Google\Chrome"
 $ChromeRecommendedPath = "HKLM:\SOFTWARE\Policies\Google\Chrome\Recommended"
-$ManifestPath = "HKLM:\SOFTWARE\ChromePolicyManager"
+$ManifestPath = "HKLM:\SOFTWARE\PolicyForge"
 $ManifestValueName = "PolicyHash"
 $ManifestKeysValue = "ManagedKeys"
 $ManifestHashValue = "PolicyHash"
 $ManifestTimestamp = "LastApplied"
-$LogPath = "$env:ProgramData\ChromePolicyManager\detection.log"
+$LogPath = "$env:ProgramData\PolicyForge\detection.log"
 $MaxLogSizeMB = 5
 # Cached copy of the last effective policy — enables registry verification
 # (tamper/drift detection) on 304 Not Modified and offline runs.
-$CachedPolicyPath = "$env:ProgramData\ChromePolicyManager\effective-policy.json"
+$CachedPolicyPath = "$env:ProgramData\PolicyForge\effective-policy.json"
 
 # Log buffer for batch upload
 $script:LogBuffer = [System.Collections.Generic.List[hashtable]]::new()

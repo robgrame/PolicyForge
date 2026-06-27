@@ -28,7 +28,7 @@ $ExpectedCertIssuerLike = 'CN=MSLABS-SUBCA01'   # '' to opt out of pinning via e
 
 $UrlVar        = 'CPM_API_URL'
 $CertIssuerVar = 'CPM_CERT_ISSUER_LIKE'
-$LogDir        = Join-Path $env:ProgramData 'ChromePolicyManager'
+$LogDir        = Join-Path $env:ProgramData 'PolicyForge'
 $LogFile       = Join-Path $LogDir 'endpoint-detection.log'
 
 function Write-Log {

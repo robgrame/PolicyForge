@@ -14,7 +14,7 @@
     - HKLM:\SOFTWARE\Policies\Google\Chrome\Recommended (recommended)
     
     Local manifest stored at:
-    - HKLM:\SOFTWARE\ChromePolicyManager
+    - HKLM:\SOFTWARE\PolicyForge
 
 .NOTES
     Requires: 64-bit PowerShell, Administrator privileges
@@ -54,15 +54,15 @@ $BaseJitterSeconds = 5
 # Registry paths
 $ChromePolicyPath = "HKLM:\SOFTWARE\Policies\Google\Chrome"
 $ChromeRecommendedPath = "HKLM:\SOFTWARE\Policies\Google\Chrome\Recommended"
-$ManifestPath = "HKLM:\SOFTWARE\ChromePolicyManager"
+$ManifestPath = "HKLM:\SOFTWARE\PolicyForge"
 $ManifestKeysValue = "ManagedKeys"       # JSON list of keys we own
 $ManifestHashValue = "PolicyHash"        # Hash of applied policy
 $ManifestVersionValue = "PolicyVersion"  # Version string
 $ManifestTimestamp = "LastApplied"       # Last application timestamp
-$LogPath = "$env:ProgramData\ChromePolicyManager\remediation.log"
+$LogPath = "$env:ProgramData\PolicyForge\remediation.log"
 $MaxLogSizeMB = 5
 # Cached copy of the last effective policy — used for offline registry verification.
-$CachedPolicyPath = "$env:ProgramData\ChromePolicyManager\effective-policy.json"
+$CachedPolicyPath = "$env:ProgramData\PolicyForge\effective-policy.json"
 
 # Log buffer for batch upload
 $script:LogBuffer = [System.Collections.Generic.List[hashtable]]::new()

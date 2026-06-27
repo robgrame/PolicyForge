@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/" />
+  <Folder Name="/src/Server/">
+    <Project Path="src/Server/PolicyForge.Admin/PolicyForge.Admin.csproj" />
+    <Project Path="src/Server/PolicyForge.Api/PolicyForge.Api.csproj" />
+    <Project Path="src/Server/PolicyForge.Worker/PolicyForge.Worker.csproj" />
+  </Folder>
+  <Folder Name="/src/Shared/">
+    <Project Path="src/Shared/PolicyForge.Contracts/PolicyForge.Contracts.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,464 @@
+@page "/catalog"
+@attribute [Authorize(Policy = "CanRead")]
+@using PolicyForge.Admin.Services
+@using PolicyForge.Admin.Components.Pages.Dialogs
+@inject PolicyApiClient Api
+@inject ToastService Toast
+
+<PageTitle>Policy Catalog - Chrome Policy Manager</PageTitle>
+
+<div class="page-header">
+    <i class="bi bi-collection fs-3"></i>
+    <h1 class="h3 mb-0">Chrome Policy Catalog</h1>
+</div>
+
+@* Stats banner *@
+@if (_stats is not null)
+{
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="row text-center text-md-start g-3">
+                <div class="col-6 col-md-3">
+                    <div class="small text-secondary">Template Version</div>
+                    <div class="h6 mb-0">
+                        @_stats.TemplateVersion
+                        @if (_latest is not null && _latest.UpdateAvailable)
+                        {
+                            <span class="badge text-bg-warning ms-1" title="A newer Chrome policy template is available">update available</span>
+                        }
+                        else if (_latest is not null && !string.IsNullOrEmpty(_latest.Latest) && !_latest.UpdateAvailable)
+                        {
+                            <span class="badge text-bg-success ms-1" title="Catalog is up to date"><i class="bi bi-check-lg"></i></span>
+                        }
+                    </div>
+                </div>
+                <div class="col-6 col-md-2"><div class="small text-secondary">Total Policies</div><div class="h6 mb-0">@_stats.TotalEntries</div></div>
+                <div class="col-6 col-md-2"><div class="small text-secondary">Mandatory</div><div class="h6 mb-0">@_stats.MandatoryPolicies</div></div>
+                <div class="col-6 col-md-2"><div class="small text-secondary">Recommended</div><div class="h6 mb-0">@_stats.RecommendedPolicies</div></div>
+                <div class="col-6 col-md-3"><div class="small text-secondary">Last Import</div><div class="h6 mb-0">@(_stats.LastImport?.ToString("yyyy-MM-dd HH:mm") ?? "Never")</div></div>
+            </div>
+        </div>
+    </div>
+
+    @if (_latest is not null && _latest.UpdateAvailable)
+    {
+        <div class="alert alert-warning d-flex flex-wrap align-items-center justify-content-between gap-2">
+            <div>
+                <i class="bi bi-arrow-up-circle me-1"></i>
+                A newer Chrome policy template is available from Google:
+                <strong>@_latest.Latest</strong>
+                (imported: <strong>@(_latest.Imported ?? "none")</strong>).
+            </div>
+            <button class="btn btn-sm btn-warning" @onclick="ImportLatestFromGoogleAsync" disabled="@_importing">
+                @if (_importing)
+                {
+                    <span class="spinner-border spinner-border-sm me-1"></span>
+                    <span>Updating…</span>
+                }
+                else
+                {
+                    <i class="bi bi-download me-1"></i>
+                    <span>Import version @_latest.Latest</span>
+                }
+            </button>
+        </div>
+    }
+}
+else if (_stats is null && !_loading)
+{
+    <div class="alert alert-info">
+        No policies imported yet. Upload the Chrome ADMX template zip to populate the catalog.
+    </div>
+}
+
+@* Import section *@
+<div class="accordion mb-4" id="importAcc">
+    <div class="accordion-item">
+        <h2 class="accordion-header">
+            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#importBody">
+                <i class="bi bi-upload me-2"></i> Import ADMX Templates
+            </button>
+        </h2>
+        <div id="importBody" class="accordion-collapse collapse" data-bs-parent="#importAcc">
+            <div class="accordion-body">
+                <p class="small">Import Chrome policy definitions from ADMX templates. Choose one method:</p>
+
+                <ul class="nav nav-tabs mb-3">
+                    <li class="nav-item">
+                        <button class="nav-link @(_importTab == 0 ? "active" : "")" @onclick="() => _importTab = 0">
+                            <i class="bi bi-cloud-download me-1"></i> Download from Google
+                        </button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link @(_importTab == 1 ? "active" : "")" @onclick="() => _importTab = 1">
+                            <i class="bi bi-file-earmark-zip me-1"></i> Upload ZIP
+                        </button>
+                    </li>
+                </ul>
+
+                @if (_importTab == 0)
+                {
+                    <p class="small">The server downloads the latest Chrome ADMX templates directly from Google Enterprise.
+                        This is the recommended method (avoids 113MB upload through the browser).</p>
+                    <div class="row g-2 align-items-end">
+                        <div class="col-12 col-sm-4">
+                            <label class="form-label">Version Label</label>
+                            <input class="form-control" @bind="_importVersion" placeholder="e.g. 136.0.7103.48" />
+                        </div>
+                        <div class="col-12 col-sm-3">
+                            <label class="form-label">Import Mode</label>
+                            <select class="form-select" @bind="_importMode">
+                                <option value="full">Full (replace all)</option>
+                                <option value="diff">Differential (delta only)</option>
+                            </select>
+                        </div>
+                        <div class="col-12 col-sm-3">
+                            <button class="btn btn-success w-100" disabled="@_importing" @onclick="ImportFromUrlAsync">
+                                @if (_importing)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-1"></span><text>Downloading...</text>
+                                }
+                                else
+                                {
+                                    <i class="bi bi-download me-1"></i><text>Import from Google</text>
+                                }
+                            </button>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <p class="small">Upload <code>policy_templates.zip</code> from
+                        <a href="https://chromeenterprise.google/browser/download/#manage-policies-tab" target="_blank">Chrome Enterprise</a>.
+                        For air-gapped environments only.</p>
+                    <div class="row g-2 align-items-end">
+                        <div class="col-12 col-sm-5">
+                            <label class="form-label">ZIP File</label>
+                            <InputFile class="form-control" accept=".zip" OnChange="OnFileSelected" />
+                            @if (_selectedFile is not null)
+                            {
+                                <div class="form-text">Selected: @_selectedFile.Name (@((_selectedFile.Size / 1024d / 1024d).ToString("F1")) MB)</div>
+                            }
+                        </div>
+                        <div class="col-12 col-sm-3">
+                            <label class="form-label">Version Label</label>
+                            <input class="form-control" @bind="_importVersion" placeholder="e.g. 136.0.7103.48" />
+                        </div>
+                        <div class="col-6 col-sm-2">
+                            <label class="form-label">Mode</label>
+                            <select class="form-select" @bind="_importMode">
+                                <option value="full">Full</option>
+                                <option value="diff">Diff</option>
+                            </select>
+                        </div>
+                        <div class="col-6 col-sm-2">
+                            <button class="btn btn-success w-100" disabled="@(_selectedFile is null || _importing)" @onclick="ImportAsync">
+                                @if (_importing)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-1"></span><text>...</text>
+                                }
+                                else
+                                {
+                                    <text>Import</text>
+                                }
+                            </button>
+                        </div>
+                    </div>
+                }
+
+                @if (!string.IsNullOrEmpty(_importError))
+                {
+                    <div class="alert alert-danger alert-dismissible mt-3">
+                        ❌ @_importError
+                        <button type="button" class="btn-close" @onclick="() => _importError = null"></button>
+                    </div>
+                }
+                @if (_importResult is not null)
+                {
+                    <div class="alert alert-success mt-3">
+                        ✅ @_importResult.Message — @_importResult.Mandatory mandatory, @_importResult.Recommended recommended across @_importResult.Categories categories
+                    </div>
+                    @if (_importResult.Added > 0 || _importResult.Removed > 0 || _importResult.Updated > 0)
+                    {
+                        <div class="alert alert-info py-2 mt-2">
+                            Delta: +@_importResult.Added added, ~@_importResult.Updated updated, -@_importResult.Removed removed
+                        </div>
+                    }
+                    @if (_importResult.Warnings.Count > 0)
+                    {
+                        <div class="alert alert-warning py-2 mt-2">@_importResult.Warnings.Count warning(s) during import</div>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@* Filters + table *@
+@if (_entries.Count > 0 || _loading)
+{
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-12 col-sm-4">
+                    <label class="form-label">Search policies</label>
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="bi bi-search"></i></span>
+                        <input class="form-control" placeholder="e.g. SafeBrowsing, password..."
+                               @bind="_searchText" @bind:event="oninput" @bind:after="ApplyFilters" />
+                        @if (!string.IsNullOrEmpty(_searchText))
+                        {
+                            <button class="btn btn-outline-secondary" type="button" title="Clear search"
+                                    @onclick="ClearSearch"><i class="bi bi-x-lg"></i></button>
+                        }
+                    </div>
+                </div>
+                <div class="col-12 col-sm-3">
+                    <label class="form-label">Category</label>
+                    <select class="form-select" @bind="_selectedCategory" @bind:after="ApplyFilters">
+                        <option value="">All categories</option>
+                        @foreach (var cat in _categories)
+                        {
+                            <option value="@cat">@cat</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-12 col-sm-2">
+                    <label class="form-label">Scope</label>
+                    <select class="form-select" @bind="_selectedScope" @bind:after="ApplyFilters">
+                        <option value="">All</option>
+                        <option value="mandatory">Mandatory</option>
+                        <option value="recommended">Recommended</option>
+                    </select>
+                </div>
+                <div class="col-12 col-sm-3 text-secondary small">
+                    Showing @_filteredEntries.Count of @_entries.Count policies
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="table-responsive" style="max-height:600px; overflow-y:auto;">
+            <table class="table table-hover table-striped align-middle mb-0">
+                <thead class="position-sticky top-0 bg-body">
+                    <tr><th>Policy</th><th>Category</th><th>Type</th><th>Scope</th><th>Actions</th></tr>
+                </thead>
+                <tbody>
+                    @if (_loading)
+                    {
+                        <tr><td colspan="5" class="text-center py-4"><div class="spinner-border text-primary"></div></td></tr>
+                    }
+                    @foreach (var entry in _filteredEntries)
+                    {
+                        <tr>
+                            <td>
+                                <div class="fw-semibold">@entry.DisplayName</div>
+                                <div class="small text-secondary mono">@entry.RegistryKey\@entry.RegistryValueName</div>
+                            </td>
+                            <td><span class="badge text-bg-light border">@entry.Category</span></td>
+                            <td><span class="badge text-bg-@TypeBadge(entry.DataType)">@entry.DataType</span></td>
+                            <td>
+                                @if (entry.IsRecommended) { <span class="badge text-bg-warning">Recommended</span> }
+                                else { <span class="badge text-bg-success">Mandatory</span> }
+                            </td>
+                            <td>
+                                <button class="btn btn-sm btn-link p-0 me-2" title="Details"
+                                        @onclick="() => ShowDetails(entry)"><i class="bi bi-info-circle"></i></button>
+                                <button class="btn btn-sm btn-link text-primary p-0" title="Add to policy set"
+                                        @onclick="() => AddToPolicySet(entry)"><i class="bi bi-plus-lg"></i></button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+<PolicyDetailsDialog @bind-Visible="_showDetails" Entry="_detailsEntry" />
+<AddToPolicySetDialog @bind-Visible="_showAdd" Entry="_addEntry" PolicySets="_policySets" Api="Api" OnAdd="HandleAddToPolicySet" />
+
+@code {
+    private List<PolicyCatalogEntryDto> _entries = [];
+    private List<PolicyCatalogEntryDto> _filteredEntries = [];
+    private List<string> _categories = [];
+    private List<PolicySetDto> _policySets = [];
+    private CatalogStatsDto? _stats;
+    private LatestVersionDto? _latest;
+    private bool _checkingLatest;
+    private bool _loading = true;
+    private string _searchText = "";
+    private string? _selectedCategory;
+    private string? _selectedScope;
+    private int _importTab = 0;
+
+    private IBrowserFile? _selectedFile;
+    private string _importVersion = "";
+    private string _importMode = "full";
+    private bool _importing;
+    private CatalogImportResultDto? _importResult;
+    private string? _importError;
+
+    private bool _showDetails;
+    private PolicyCatalogEntryDto? _detailsEntry;
+    private bool _showAdd;
+    private PolicyCatalogEntryDto? _addEntry;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var statsTask = Api.GetCatalogStatsAsync();
+            var categoriesTask = Api.GetCatalogCategoriesAsync();
+            var policySetsTask = Api.GetPoliciesAsync();
+            await Task.WhenAll(statsTask, categoriesTask, policySetsTask);
+
+            _stats = statsTask.Result;
+            _categories = categoriesTask.Result;
+            _policySets = policySetsTask.Result;
+
+            if (_stats.TotalEntries > 0)
+            {
+                _entries = await Api.GetCatalogAsync();
+                ApplyFilters();
+            }
+        }
+        catch (Exception ex) { Toast.Error($"Failed to load catalog: {ex.Message}"); }
+        finally { _loading = false; }
+
+        await CheckLatestVersionAsync();
+    }
+
+    private async Task CheckLatestVersionAsync()
+    {
+        _checkingLatest = true;
+        try { _latest = await Api.GetLatestAvailableVersionAsync(); }
+        catch { /* best-effort: network/API hiccup shouldn't break the page */ }
+        finally { _checkingLatest = false; StateHasChanged(); }
+    }
+
+    private void OnFileSelected(InputFileChangeEventArgs e) => _selectedFile = e.File;
+
+    private async Task ImportLatestFromGoogleAsync()
+    {
+        _importing = true; _importResult = null; _importError = null;
+        try
+        {
+            // Empty version => API auto-detects the real version from the zip's VERSION file.
+            _importResult = await Api.ImportCatalogFromUrlAsync("", diffMode: false);
+            await ReloadAfterImport();
+            Toast.Success($"Updated catalog to version {_importResult.TemplateVersion} ({_importResult.TotalParsed} policies)!");
+        }
+        catch (Exception ex) { _importError = ex.Message; Toast.Error($"Update failed: {ex.Message}"); }
+        finally { _importing = false; }
+    }
+
+    private async Task ImportFromUrlAsync()
+    {
+        _importing = true; _importResult = null; _importError = null;
+        try
+        {
+            _importResult = await Api.ImportCatalogFromUrlAsync(_importVersion, _importMode == "diff");
+            await ReloadAfterImport();
+            Toast.Success($"Successfully imported {_importResult.TotalParsed} policies!");
+        }
+        catch (Exception ex) { _importError = ex.Message; Toast.Error($"Import failed: {ex.Message}"); }
+        finally { _importing = false; }
+    }
+
+    private async Task ImportAsync()
+    {
+        if (_selectedFile is null) return;
+        _importing = true; _importResult = null; _importError = null;
+        try
+        {
+            using var stream = _selectedFile.OpenReadStream(maxAllowedSize: 200 * 1024 * 1024);
+            _importResult = await Api.ImportCatalogAsync(stream, _selectedFile.Name, _importVersion, _importMode == "diff");
+            await ReloadAfterImport();
+            Toast.Success($"Successfully imported {_importResult.TotalParsed} policies!");
+        }
+        catch (Exception ex) { _importError = ex.Message; Toast.Error($"Import failed: {ex.Message}"); }
+        finally { _importing = false; }
+    }
+
+    private async Task ReloadAfterImport()
+    {
+        _stats = await Api.GetCatalogStatsAsync();
+        _categories = await Api.GetCatalogCategoriesAsync();
+        _entries = await Api.GetCatalogAsync();
+        ApplyFilters();
+        await CheckLatestVersionAsync();
+    }
+
+    private void ClearSearch() { _searchText = ""; ApplyFilters(); }
+
+    private void ApplyFilters()
+    {
+        IEnumerable<PolicyCatalogEntryDto> query = _entries;
+
+        if (!string.IsNullOrWhiteSpace(_searchText))
+        {
+            var term = _searchText.Trim();
+            query = query.Where(e =>
+                (e.Name?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (e.DisplayName?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (e.RegistryValueName?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false));
+        }
+        if (!string.IsNullOrEmpty(_selectedCategory))
+            query = query.Where(e => e.Category == _selectedCategory);
+        if (_selectedScope == "mandatory")
+            query = query.Where(e => !e.IsRecommended);
+        else if (_selectedScope == "recommended")
+            query = query.Where(e => e.IsRecommended);
+
+        _filteredEntries = query.ToList();
+        StateHasChanged();
+    }
+
+    private async Task ShowDetails(PolicyCatalogEntryDto entry)
+    {
+        _detailsEntry = await Api.GetCatalogEntryAsync(entry.Id) ?? entry;
+        _showDetails = true;
+    }
+
+    private async Task AddToPolicySet(PolicyCatalogEntryDto entry)
+    {
+        _addEntry = await Api.GetCatalogEntryAsync(entry.Id) ?? entry;
+        _showAdd = true;
+    }
+
+    private async Task HandleAddToPolicySet(AddToPolicySetResult addResult)
+    {
+        var entry = _addEntry;
+        if (entry is null) return;
+        try
+        {
+            object value = entry.DataType switch
+            {
+                "Boolean" => addResult.Value is bool b ? (b ? 1 : 0) : addResult.Value,
+                "Integer" => addResult.Value,
+                "List" => addResult.Value is string s
+                    ? s.Split('\n', StringSplitOptions.RemoveEmptyEntries).ToArray()
+                    : addResult.Value,
+                _ => addResult.Value
+            };
+            await Api.AddSettingToDraftAsync(addResult.PolicySet.Id, entry.Name, value);
+            Toast.Success($"✅ Added \"{entry.Name}\" to \"{addResult.PolicySet.Name}\" draft");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"❌ Failed to add: {ex.Message}");
+        }
+    }
+
+    private static string TypeBadge(string dataType) => dataType switch
+    {
+        "Boolean" => "success",
+        "Integer" => "info",
+        "String" => "warning",
+        "Enum" => "secondary",
+        "List" => "primary",
+        _ => "light"
+    };
+}

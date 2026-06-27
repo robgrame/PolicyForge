@@ -26,7 +26,7 @@ $ExpectedCertIssuerLike = 'CN=MSLABS-SUBCA01'   # '' to remove the var
 
 $UrlVar        = 'CPM_API_URL'
 $CertIssuerVar = 'CPM_CERT_ISSUER_LIKE'
-$LogDir        = Join-Path $env:ProgramData 'ChromePolicyManager'
+$LogDir        = Join-Path $env:ProgramData 'PolicyForge'
 $LogFile       = Join-Path $LogDir 'endpoint-remediation.log'
 
 function Write-Log {
