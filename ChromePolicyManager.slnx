@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/" />
+  <Folder Name="/src/Server/">
+    <Project Path="src/Server/ChromePolicyManager.Admin/ChromePolicyManager.Admin.csproj" />
+    <Project Path="src/Server/ChromePolicyManager.Api/ChromePolicyManager.Api.csproj" />
+    <Project Path="src/Server/ChromePolicyManager.Worker/ChromePolicyManager.Worker.csproj" />
+  </Folder>
+  <Folder Name="/src/Shared/">
+    <Project Path="src/Shared/ChromePolicyManager.Contracts/ChromePolicyManager.Contracts.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,140 @@
+@page "/assignments"
+@attribute [Authorize(Policy = "CanRead")]
+@inject PolicyApiClient Api
+@inject ToastService Toast
+@inject ConfirmService Confirm
+
+<PageTitle>Assignments - Chrome Policy Manager</PageTitle>
+
+<div class="d-flex align-items-center mb-4">
+    <div class="page-header mb-0">
+        <i class="bi bi-diagram-3 fs-3"></i>
+        <h1 class="h3 mb-0">Policy Assignments</h1>
+    </div>
+    <button class="btn btn-primary ms-auto" @onclick="() => _showCreate = true">
+        <i class="bi bi-plus-lg me-1"></i> New Assignment
+    </button>
+</div>
+
+@if (_loading)
+{
+    <div class="text-center py-5"><div class="spinner-border text-primary"></div></div>
+}
+else
+{
+    <div class="card">
+        <div class="table-responsive">
+            <table class="table table-hover table-striped align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Group</th><th>Scope</th><th>Priority</th><th>Policy Version</th>
+                        <th>Enabled</th><th>Push Remediation</th><th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var a in _assignments)
+                    {
+                        <tr>
+                            <td>
+                                <div class="d-flex align-items-center gap-1">
+                                    <i class="bi bi-people text-brand"></i> @a.GroupName
+                                </div>
+                            </td>
+                            <td><span class="badge text-bg-@(a.Scope == PolicyScope.Mandatory ? "danger" : "info")">@(a.Scope == PolicyScope.Mandatory ? "Mandatory" : "Recommended")</span></td>
+                            <td><span class="badge text-bg-light border">@a.Priority</span></td>
+                            <td class="mono small">@a.PolicySetVersionId.ToString()[..8]…</td>
+                            <td>
+                                @if (a.Enabled) { <i class="bi bi-check-circle-fill text-success"></i> }
+                                else { <i class="bi bi-x-circle-fill text-danger"></i> }
+                            </td>
+                            <td>
+                                <div class="form-check form-switch mb-0">
+                                    <input class="form-check-input" type="checkbox" checked="@a.PushRemediationEnabled"
+                                           @onchange="(e) => TogglePushRemediation(a, (bool)e.Value!)" />
+                                </div>
+                            </td>
+                            <td>
+                                <button class="btn btn-sm btn-link text-primary p-0 me-2" title="Edit"
+                                        @onclick="() => EditAssignment(a)"><i class="bi bi-pencil"></i></button>
+                                <button class="btn btn-sm btn-link text-primary p-0 me-2" title="Trigger push remediation"
+                                        disabled="@(!a.PushRemediationEnabled)"
+                                        @onclick="() => TriggerPushRemediation(a)"><i class="bi bi-bell"></i></button>
+                                <button class="btn btn-sm btn-link text-danger p-0" title="Delete"
+                                        @onclick="() => DeleteAssignment(a)"><i class="bi bi-trash"></i></button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+<CreateAssignmentDialog @bind-Visible="_showCreate" OnCompleted="LoadAssignments" />
+<EditAssignmentDialog @bind-Visible="_showEdit" Assignment="_editTarget" OnCompleted="LoadAssignments" />
+
+@code {
+    private List<AssignmentDto> _assignments = [];
+    private bool _loading = true;
+    private bool _showCreate;
+    private bool _showEdit;
+    private AssignmentDto? _editTarget;
+
+    protected override async Task OnInitializedAsync() => await LoadAssignments();
+
+    private async Task LoadAssignments()
+    {
+        _loading = true;
+        try { _assignments = await Api.GetAssignmentsAsync(); }
+        catch (Exception ex) { Toast.Error($"Error: {ex.Message}"); }
+        finally { _loading = false; }
+    }
+
+    private void EditAssignment(AssignmentDto assignment)
+    {
+        _editTarget = assignment;
+        _showEdit = true;
+    }
+
+    private async Task DeleteAssignment(AssignmentDto assignment)
+    {
+        var confirm = await Confirm.ConfirmAsync("Delete Assignment",
+            $"Remove assignment to {assignment.GroupName}?", confirmText: "Delete", danger: true);
+        if (confirm)
+        {
+            await Api.DeleteAssignmentAsync(assignment.Id);
+            Toast.Success("Assignment deleted");
+            await LoadAssignments();
+        }
+    }
+
+    private async Task TogglePushRemediation(AssignmentDto assignment, bool enabled)
+    {
+        try
+        {
+            var updated = await Api.UpdateAssignmentPushRemediationAsync(assignment.Id, enabled, triggerNow: enabled);
+            assignment.PushRemediationEnabled = updated.PushRemediationEnabled;
+            Toast.Success(enabled
+                ? $"Push remediation enabled for {assignment.GroupName}"
+                : $"Push remediation disabled for {assignment.GroupName}");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Error: {ex.Message}");
+        }
+    }
+
+    private async Task TriggerPushRemediation(AssignmentDto assignment)
+    {
+        try
+        {
+            var result = await Api.TriggerAssignmentPushRemediationAsync(assignment.Id);
+            if (result.CommandsFailed > 0) Toast.Warning(result.Message);
+            else Toast.Success(result.Message);
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Error: {ex.Message}");
+        }
+    }
+}

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "apimName": {
+      "value": "cpm-dev-apim2"
+    },
+    "publisherEmail": {
+      "value": "doc@mslabs.it"
+    },
+    "publisherName": {
+      "value": "Chrome Policy Manager"
+    },
+    "backendApiUrl": {
+      "value": "https://cpm-dev-api.azurewebsites.net"
+    },
+    "appInsightsInstrumentationKey": {
+      "value": "02cf651d-ccd8-43c6-858d-64abf0501c9a"
+    }
+  }
+}

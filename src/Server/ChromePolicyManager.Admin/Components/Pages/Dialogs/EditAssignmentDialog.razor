@@ -1,0 +1,158 @@
+@inject PolicyApiClient Api
+@inject ToastService Toast
+
+<Modal Visible="Visible" VisibleChanged="VisibleChanged" Title="Edit Assignment"
+       Icon="bi-pencil-square" Size="md" OnClose="Cancel">
+    <ChildContent>
+    @if (Assignment is not null)
+    {
+        <div class="alert alert-info py-2 d-flex align-items-center gap-2">
+            <i class="bi bi-info-circle"></i>
+            <span>Editing assignment for <strong>@Assignment.GroupName</strong></span>
+        </div>
+    }
+
+    <div class="mb-3 position-relative">
+        <label class="form-label">Entra Group</label>
+        <input class="form-control" value="@_groupSearch"
+               @oninput="OnSearchInput" placeholder="Type group name to search..." autocomplete="off" />
+        @if (_searching)
+        {
+            <div class="form-text"><span class="spinner-border spinner-border-sm me-1"></span>Searching…</div>
+        }
+        @if (_results.Count > 0)
+        {
+            <ul class="list-group position-absolute w-100 shadow" style="z-index:1056; max-height:240px; overflow-y:auto;">
+                @foreach (var g in _results)
+                {
+                    <li class="list-group-item list-group-item-action d-flex align-items-center gap-2"
+                        role="button" @onclick="() => SelectGroup(g)">
+                        <i class="bi bi-people text-brand"></i>
+                        <div>
+                            <div class="fw-semibold">@g.DisplayName</div>
+                            <div class="small text-secondary">@g.GroupType — @(g.Description ?? g.Id)</div>
+                        </div>
+                    </li>
+                }
+            </ul>
+        }
+        @if (_selectedGroup != null)
+        {
+            <div class="form-text">Selected: <strong>@_selectedGroup.DisplayName</strong> <span class="mono">(@_selectedGroup.Id)</span></div>
+        }
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label">Priority</label>
+        <input type="number" class="form-control" @bind="_priority" min="1" max="9999" />
+        <div class="form-text">Lower number = higher priority (wins on conflict)</div>
+    </div>
+    <div class="mb-1">
+        <label class="form-label">Scope</label>
+        <select class="form-select" @bind="_scope">
+            <option value="0">Mandatory</option>
+            <option value="1">Recommended</option>
+        </select>
+        <div class="form-text">Mandatory → HKLM\...\Chrome, Recommended → ...\Chrome\Recommended</div>
+    </div>
+    </ChildContent>
+
+    <Footer>
+        <button type="button" class="btn btn-outline-secondary" @onclick="Cancel">Cancel</button>
+        <button type="button" class="btn btn-primary" @onclick="Submit" disabled="@(_selectedGroup == null)">Save Changes</button>
+    </Footer>
+</Modal>
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public EventCallback<bool> VisibleChanged { get; set; }
+    [Parameter] public EventCallback OnCompleted { get; set; }
+    [Parameter] public AssignmentDto? Assignment { get; set; }
+
+    private EntraGroupDto? _selectedGroup;
+    private string _groupSearch = "";
+    private int _priority;
+    private int _scope;
+    private List<EntraGroupDto> _results = [];
+    private bool _searching;
+    private Guid _loadedFor;
+    private CancellationTokenSource? _debounceCts;
+
+    protected override void OnParametersSet()
+    {
+        if (Assignment is not null && _loadedFor != Assignment.Id)
+        {
+            _loadedFor = Assignment.Id;
+            _priority = Assignment.Priority;
+            _scope = (int)Assignment.Scope;
+            _selectedGroup = new EntraGroupDto { Id = Assignment.EntraGroupId, DisplayName = Assignment.GroupName };
+            _groupSearch = Assignment.GroupName;
+            _results = [];
+        }
+    }
+
+    private async Task OnSearchInput(ChangeEventArgs e)
+    {
+        _groupSearch = e.Value?.ToString() ?? "";
+        _selectedGroup = null;
+        _debounceCts?.Cancel();
+        _debounceCts = new CancellationTokenSource();
+        var token = _debounceCts.Token;
+
+        if (_groupSearch.Length < 2) { _results = []; return; }
+
+        try
+        {
+            await Task.Delay(300, token);
+            _searching = true;
+            StateHasChanged();
+            _results = (await Api.SearchGroupsAsync(_groupSearch)).Take(10).ToList();
+        }
+        catch (OperationCanceledException) { }
+        catch { _results = []; }
+        finally { _searching = false; StateHasChanged(); }
+    }
+
+    private void SelectGroup(EntraGroupDto g)
+    {
+        _selectedGroup = g;
+        _groupSearch = g.DisplayName;
+        _results = [];
+    }
+
+    private async Task Submit()
+    {
+        if (_selectedGroup == null || Assignment is null) return;
+        try
+        {
+            string? entraGroupId = _selectedGroup.Id != Assignment.EntraGroupId ? _selectedGroup.Id : null;
+            string? groupName = entraGroupId != null ? _selectedGroup.DisplayName : null;
+            int? priority = _priority != Assignment.Priority ? _priority : null;
+            int? scope = _scope != (int)Assignment.Scope ? _scope : null;
+
+            if (entraGroupId == null && priority == null && scope == null)
+            {
+                Toast.Info("No changes detected");
+                await Close();
+                return;
+            }
+
+            await Api.UpdateAssignmentAsync(Assignment.Id, entraGroupId, groupName, priority, scope);
+            Toast.Success("Assignment updated!");
+            await Close();
+            await OnCompleted.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Error: {ex.Message}");
+        }
+    }
+
+    private async Task Cancel() => await Close();
+
+    private async Task Close()
+    {
+        _loadedFor = Guid.Empty;
+        if (VisibleChanged.HasDelegate) await VisibleChanged.InvokeAsync(false);
+    }
+}

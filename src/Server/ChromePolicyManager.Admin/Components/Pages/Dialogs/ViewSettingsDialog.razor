@@ -1,0 +1,45 @@
+@using System.Text.Json
+
+<Modal Visible="Visible" VisibleChanged="VisibleChanged" Title="@($"Policy Settings — v{Version?.Version}")"
+       Icon="bi-eye" Size="lg" OnClose="Close">
+    <ChildContent>
+    <div class="d-flex align-items-center gap-3 mb-3">
+        <span class="badge text-bg-@StatusBadge">@Version?.Status</span>
+        <span class="small text-secondary mono">Hash: @Version?.Hash</span>
+    </div>
+    <hr />
+    <p class="fw-semibold mb-1">Chrome Policy Keys</p>
+    <pre class="bg-body-secondary p-3 rounded mono mb-0" style="max-height:400px; overflow-y:auto; white-space:pre-wrap;">@FormatJson(Version?.SettingsJson ?? "{}")</pre>
+    </ChildContent>
+    <Footer>
+        <button type="button" class="btn btn-primary" @onclick="Close">Close</button>
+    </Footer>
+</Modal>
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public EventCallback<bool> VisibleChanged { get; set; }
+    [Parameter] public PolicySetVersionDto? Version { get; set; }
+
+    private string StatusBadge => Version?.Status switch
+    {
+        PolicyVersionStatus.Active => "success",
+        PolicyVersionStatus.Draft => "info",
+        _ => "secondary"
+    };
+
+    private async Task Close()
+    {
+        if (VisibleChanged.HasDelegate) await VisibleChanged.InvokeAsync(false);
+    }
+
+    private string FormatJson(string json)
+    {
+        try
+        {
+            var doc = JsonDocument.Parse(json);
+            return JsonSerializer.Serialize(doc, new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch { return json; }
+    }
+}

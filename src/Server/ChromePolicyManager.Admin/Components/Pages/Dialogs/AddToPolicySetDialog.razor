@@ -1,0 +1,212 @@
+@using ChromePolicyManager.Admin.Services
+@using System.Text.Json
+
+<Modal Visible="Visible" VisibleChanged="VisibleChanged" Title="@($"Add \"{Entry?.DisplayName}\" to PolicySet")"
+       Icon="bi-plus-circle" Size="md" OnClose="Cancel">
+    <ChildContent>
+    @if (Entry is not null)
+    {
+        <div class="alert alert-info py-2 mb-3">
+            <strong>@Entry.Name</strong> — @Entry.DataType | @(Entry.IsRecommended ? "Recommended" : "Mandatory")
+        </div>
+        <div class="small text-secondary mb-3">
+            Registry: <code>@Entry.RegistryKey\@Entry.RegistryValueName</code>
+        </div>
+
+        @if (!_creatingNew)
+        {
+            <div class="mb-2">
+                <label class="form-label">Target PolicySet</label>
+                <select class="form-select" @bind="_selectedPolicySetId">
+                    @foreach (var ps in PolicySets)
+                    {
+                        <option value="@ps.Id">@ps.Name</option>
+                    }
+                </select>
+            </div>
+            <button type="button" class="btn btn-sm btn-link p-0 mb-3" @onclick="() => _creatingNew = true">
+                <i class="bi bi-plus-lg me-1"></i> Create new PolicySet
+            </button>
+        }
+        else
+        {
+            <div class="mb-2">
+                <label class="form-label">New PolicySet Name</label>
+                <input class="form-control" @bind="_newPolicySetName" placeholder="e.g. Chrome Security Baseline" />
+            </div>
+            <div class="mb-2">
+                <label class="form-label">Description (optional)</label>
+                <input class="form-control" @bind="_newPolicySetDescription" />
+            </div>
+            <div class="d-flex gap-2 mb-3">
+                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => _creatingNew = false">Cancel</button>
+                <button type="button" class="btn btn-sm btn-primary" @onclick="CreateNewPolicySet"
+                        disabled="@string.IsNullOrWhiteSpace(_newPolicySetName)">Create</button>
+            </div>
+        }
+
+        <hr />
+
+        @if (!string.IsNullOrWhiteSpace(Entry.Description))
+        {
+            <div class="accordion mb-3" id="descAcc">
+                <div class="accordion-item">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                                data-bs-target="#descBody">
+                            Policy Description & Value Guidance
+                        </button>
+                    </h2>
+                    <div id="descBody" class="accordion-collapse collapse" data-bs-parent="#descAcc">
+                        <div class="accordion-body" style="white-space:pre-wrap;">@Entry.Description</div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <label class="form-label fw-semibold">Policy Value</label>
+        @switch (Entry.DataType)
+        {
+            case "Boolean":
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="apBool" @bind="_boolValue" />
+                    <label class="form-check-label" for="apBool">@(_boolValue ? "Enabled (registry value = 1)" : "Disabled (registry value = 0)")</label>
+                </div>
+                break;
+            case "Integer":
+                <input type="number" class="form-control" @bind="_intValue" />
+                <div class="form-text">Enter a numeric value as specified in the policy description</div>
+                break;
+            case "String":
+                <input class="form-control" @bind="_stringValue" />
+                <div class="form-text">See policy description above for expected format</div>
+                break;
+            case "Enum":
+                <select class="form-select" @bind="_stringValue">
+                    @foreach (var opt in ParseEnumOptions(Entry.EnumOptions ?? "[]"))
+                    {
+                        <option value="@opt.Value">@opt.Display (@opt.Value)</option>
+                    }
+                </select>
+                break;
+            case "List":
+                <textarea class="form-control" rows="4" @bind="_stringValue" placeholder="One value per line"></textarea>
+                <div class="form-text">Each line becomes a separate registry entry</div>
+                break;
+        }
+
+        <div class="bg-body-secondary p-3 rounded mt-3">
+            <div class="small text-secondary"><strong>Preview:</strong> This will write:</div>
+            <div class="mono small">@GetRegistryPreview()</div>
+        </div>
+    }
+    </ChildContent>
+
+    <Footer>
+        <button type="button" class="btn btn-outline-secondary" @onclick="Cancel">Cancel</button>
+        <button type="button" class="btn btn-primary" @onclick="Submit"
+                disabled="@(SelectedPolicySet is null)">Add Policy</button>
+    </Footer>
+</Modal>
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public EventCallback<bool> VisibleChanged { get; set; }
+    [Parameter] public PolicyCatalogEntryDto? Entry { get; set; }
+    [Parameter] public List<PolicySetDto> PolicySets { get; set; } = [];
+    [Parameter] public PolicyApiClient Api { get; set; } = default!;
+    [Parameter] public EventCallback<AddToPolicySetResult> OnAdd { get; set; }
+
+    private Guid _selectedPolicySetId;
+    private bool _boolValue = true;
+    private int _intValue;
+    private string _stringValue = "";
+    private bool _creatingNew;
+    private string _newPolicySetName = "";
+    private string _newPolicySetDescription = "";
+    private Guid _loadedFor;
+
+    private PolicySetDto? SelectedPolicySet => PolicySets.FirstOrDefault(p => p.Id == _selectedPolicySetId);
+
+    protected override void OnParametersSet()
+    {
+        if (Entry is not null && _loadedFor != Entry.Id)
+        {
+            _loadedFor = Entry.Id;
+            _selectedPolicySetId = PolicySets.FirstOrDefault()?.Id ?? Guid.Empty;
+            _boolValue = true; _intValue = 0; _stringValue = "";
+            _creatingNew = false; _newPolicySetName = ""; _newPolicySetDescription = "";
+            if (Entry.DataType == "Enum")
+            {
+                var opts = ParseEnumOptions(Entry.EnumOptions ?? "[]");
+                if (opts.Count > 0) _stringValue = opts[0].Value;
+            }
+        }
+    }
+
+    private async Task CreateNewPolicySet()
+    {
+        if (string.IsNullOrWhiteSpace(_newPolicySetName)) return;
+        try
+        {
+            var newPs = await Api.CreatePolicySetAsync(_newPolicySetName.Trim(), _newPolicySetDescription.Trim());
+            PolicySets.Add(newPs);
+            _selectedPolicySetId = newPs.Id;
+            _creatingNew = false;
+        }
+        catch (Exception ex)
+        {
+            _newPolicySetDescription = $"Error: {ex.Message}";
+        }
+    }
+
+    private string GetRegistryPreview()
+    {
+        if (Entry is null) return "";
+        var path = $@"{Entry.RegistryKey}\{Entry.RegistryValueName}";
+        return Entry.DataType switch
+        {
+            "Boolean" => $"[{path}] = (DWORD) {(_boolValue ? 1 : 0)}",
+            "Integer" => $"[{path}] = (DWORD) {_intValue}",
+            "String" => $"[{path}] = (REG_SZ) \"{_stringValue}\"",
+            "Enum" => $"[{path}] = (DWORD) {_stringValue}",
+            "List" => $"[{path}\\1] = \"{_stringValue.Split('\n').FirstOrDefault()}\" ...",
+            _ => $"[{path}] = \"{_stringValue}\""
+        };
+    }
+
+    private async Task Submit()
+    {
+        if (Entry is null || SelectedPolicySet is null) return;
+        object value = Entry.DataType switch
+        {
+            "Boolean" => _boolValue,
+            "Integer" => _intValue,
+            _ => _stringValue
+        };
+        await Close();
+        await OnAdd.InvokeAsync(new AddToPolicySetResult { PolicySet = SelectedPolicySet, Value = value });
+    }
+
+    private async Task Cancel() => await Close();
+
+    private async Task Close()
+    {
+        _loadedFor = Guid.Empty;
+        if (VisibleChanged.HasDelegate) await VisibleChanged.InvokeAsync(false);
+    }
+
+    private List<(string Value, string Display)> ParseEnumOptions(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            return doc.RootElement.EnumerateArray()
+                .Select(e => (
+                    Value: e.GetProperty("value").ToString(),
+                    Display: e.TryGetProperty("displayName", out var d) ? d.GetString() ?? "" : ""))
+                .ToList();
+        }
+        catch { return []; }
+    }
+}

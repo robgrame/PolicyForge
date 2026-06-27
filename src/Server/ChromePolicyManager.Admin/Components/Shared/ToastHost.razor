@@ -1,0 +1,68 @@
+@namespace ChromePolicyManager.Admin.Components.Shared
+@using ChromePolicyManager.Admin.Services
+@implements IDisposable
+@inject ToastService Toasts
+
+<div class="toast-container position-fixed bottom-0 end-0 p-3">
+    @foreach (var t in Toasts.Messages)
+    {
+        <div class="toast show align-items-center text-bg-@CssLevel(t.Level) border-0 mb-2" role="alert">
+            <div class="d-flex">
+                <div class="toast-body d-flex align-items-center gap-2">
+                    <i class="bi @Icon(t.Level)"></i>
+                    <span>@t.Text</span>
+                </div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto"
+                        aria-label="Close" @onclick="() => Toasts.Remove(t.Id)"></button>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private readonly List<System.Timers.Timer> _timers = new();
+    private readonly HashSet<Guid> _scheduled = new();
+
+    protected override void OnInitialized() => Toasts.OnChange += HandleChange;
+
+    private void HandleChange()
+    {
+        // Auto-dismiss each new toast after 5s.
+        foreach (var msg in Toasts.Messages.ToList())
+        {
+            if (_scheduled.Contains(msg.Id)) continue;
+            _scheduled.Add(msg.Id);
+            var timer = new System.Timers.Timer(5000) { AutoReset = false };
+            var id = msg.Id;
+            timer.Elapsed += (_, _) =>
+            {
+                InvokeAsync(() => { Toasts.Remove(id); StateHasChanged(); });
+            };
+            timer.Start();
+            _timers.Add(timer);
+        }
+        InvokeAsync(StateHasChanged);
+    }
+
+    private static string CssLevel(ToastLevel level) => level switch
+    {
+        ToastLevel.Success => "success",
+        ToastLevel.Error => "danger",
+        ToastLevel.Warning => "warning",
+        _ => "primary"
+    };
+
+    private static string Icon(ToastLevel level) => level switch
+    {
+        ToastLevel.Success => "bi-check-circle-fill",
+        ToastLevel.Error => "bi-x-circle-fill",
+        ToastLevel.Warning => "bi-exclamation-triangle-fill",
+        _ => "bi-info-circle-fill"
+    };
+
+    public void Dispose()
+    {
+        Toasts.OnChange -= HandleChange;
+        foreach (var t in _timers) t.Dispose();
+    }
+}

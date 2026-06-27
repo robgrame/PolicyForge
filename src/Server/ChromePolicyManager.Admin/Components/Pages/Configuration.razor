@@ -1,0 +1,259 @@
+@page "/configuration"
+@attribute [Authorize(Policy = "CanRead")]
+@using System.Security.Cryptography.X509Certificates
+@using ChromePolicyManager.Admin.Services
+@inject PolicyApiClient Api
+@inject ToastService Toast
+
+<PageTitle>Configurazione - Chrome Policy Manager</PageTitle>
+
+<div class="page-header">
+    <i class="bi bi-shield-lock fs-3"></i>
+    <h1 class="h3 mb-0">Configurazione client certificate</h1>
+</div>
+
+<p class="text-muted">
+    Definisci le CA fidate usate per validare il certificato client dei device che contattano gli endpoint
+    <code>/api/devices/*</code>. Le impostazioni sono salvate su Azure App Configuration e consumate dal backend API.
+</p>
+
+@if (_loading)
+{
+    <div class="d-flex align-items-center text-muted gap-2">
+        <div class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></div>
+        <span>Caricamento configurazione…</span>
+    </div>
+}
+else
+{
+    @if (!_backingStoreAvailable)
+    {
+        <div class="alert alert-warning">
+            <i class="bi bi-exclamation-triangle me-1"></i>
+            Azure App Configuration non è collegato all'API (<code>AppConfig:Endpoint</code> mancante). Le modifiche non potranno essere salvate.
+        </div>
+    }
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="form-check form-switch mb-3">
+                <input class="form-check-input" type="checkbox" role="switch" id="chkEnabled" @bind="_enabled" />
+                <label class="form-check-label fw-bold" for="chkEnabled">
+                    Applica validazione del certificato client
+                    <i class="bi bi-info-circle text-muted ms-1"
+                       title="Quando attivo, il backend rifiuta (401) le richieste ai device endpoint prive di un certificato client emesso da una delle CA fidate qui sotto. Quando APIM è davanti all'API, la validazione mTLS resta gestita da APIM e questo controllo viene saltato."></i>
+                </label>
+            </div>
+
+            <h5 class="mt-4"><i class="bi bi-patch-check me-1"></i> Certificati CA fidati</h5>
+            <p class="text-muted small">
+                Carica i file <code>.cer</code>/<code>.crt</code> delle CA. Il tipo (Root se Subject = Issuer, altrimenti Subordinate)
+                viene rilevato automaticamente insieme a Subject, Thumbprint, scadenza e contenuto Base64.
+            </p>
+
+            <div class="mb-3">
+                <InputFile OnChange="OnCertFilesSelected" multiple accept=".cer,.crt" class="form-control" />
+            </div>
+
+            @if (_certError is not null)
+            {
+                <div class="alert alert-warning py-1">@_certError</div>
+            }
+
+            @if (_certs.Count > 0)
+            {
+                <table class="table table-sm table-bordered align-middle mb-3">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Tipo</th>
+                            <th>Subject</th>
+                            <th>Thumbprint (SHA1)</th>
+                            <th>Scadenza</th>
+                            <th style="width:50px"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var cert in _certs)
+                        {
+                            var expired = cert.NotAfter < DateTime.UtcNow;
+                            <tr class="@(expired ? "table-danger" : "")">
+                                <td><span class="badge bg-@(cert.IsRoot ? "dark" : "secondary")">@(cert.IsRoot ? "Root CA" : "Sub CA")</span></td>
+                                <td class="small">@cert.Subject</td>
+                                <td><code class="small">@cert.Thumbprint</code></td>
+                                <td class="small @(expired ? "text-danger fw-bold" : "")">
+                                    @cert.NotAfter.ToString("yyyy-MM-dd")
+                                    @if (expired) { <i class="bi bi-exclamation-triangle-fill text-danger ms-1"></i> }
+                                </td>
+                                <td class="text-center">
+                                    <button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RemoveCert(cert)" title="Rimuovi">
+                                        <i class="bi bi-x-circle"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            else
+            {
+                <div class="alert alert-light border small py-2">
+                    <i class="bi bi-info-circle"></i> Nessun certificato CA configurato. Carica almeno una Root CA.
+                </div>
+            }
+
+            <div class="form-check form-switch mb-3">
+                <input class="form-check-input" type="checkbox" role="switch" id="chkCrl" @bind="_checkRevocation" />
+                <label class="form-check-label" for="chkCrl">
+                    Verifica revoca CRL/OCSP
+                    <i class="bi bi-info-circle text-muted ms-1"
+                       title="Abilita il controllo dello stato di revoca del certificato client durante la validazione della catena."></i>
+                </label>
+            </div>
+
+            @if (_checkRevocation)
+            {
+                <div class="mb-3" style="max-width:320px">
+                    <label class="form-label">Modalità revoca</label>
+                    <select class="form-select" @bind="_revocationMode">
+                        <option value="Online">Online (scarica CRL/OCSP)</option>
+                        <option value="Offline">Offline (cache locale)</option>
+                        <option value="NoCheck">NoCheck (disabilitato)</option>
+                    </select>
+                </div>
+            }
+        </div>
+    </div>
+
+    <AuthorizeView Policy="CanWrite">
+        <Authorized>
+            <button class="btn btn-primary" @onclick="SaveAsync" disabled="@(_saving || !_backingStoreAvailable)">
+                @if (_saving)
+                {
+                    <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                }
+                <i class="bi bi-save me-1"></i> Salva configurazione
+            </button>
+        </Authorized>
+        <NotAuthorized>
+            <div class="alert alert-secondary small mb-0">
+                <i class="bi bi-lock me-1"></i> Solo gli amministratori possono modificare questa configurazione.
+            </div>
+        </NotAuthorized>
+    </AuthorizeView>
+}
+
+@code {
+    private bool _loading = true;
+    private bool _saving;
+    private bool _enabled;
+    private bool _checkRevocation;
+    private bool _backingStoreAvailable;
+    private string _revocationMode = "Online";
+    private string? _certError;
+    private readonly List<CaCertificateDto> _certs = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var cfg = await Api.GetClientCertConfigAsync();
+            _enabled = cfg.Enabled;
+            _checkRevocation = cfg.CheckRevocation;
+            _revocationMode = string.IsNullOrWhiteSpace(cfg.RevocationMode) ? "Online" : cfg.RevocationMode;
+            _backingStoreAvailable = cfg.BackingStoreAvailable;
+            _certs.Clear();
+            _certs.AddRange(cfg.Certificates);
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Impossibile caricare la configurazione: {ex.Message}");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task OnCertFilesSelected(InputFileChangeEventArgs e)
+    {
+        _certError = null;
+        const long maxSize = 256 * 1024;
+        foreach (var file in e.GetMultipleFiles(20))
+        {
+            try
+            {
+                using var ms = new MemoryStream();
+                await file.OpenReadStream(maxSize).CopyToAsync(ms);
+                var cert = ParseCert(ms.ToArray());
+                if (cert is null)
+                {
+                    _certError = $"File '{file.Name}' non è un certificato valido.";
+                    continue;
+                }
+                if (_certs.Any(c => c.Thumbprint == cert.Thumbprint)) continue;
+                _certs.Add(cert);
+            }
+            catch (Exception ex)
+            {
+                _certError = $"Errore nel file '{file.Name}': {ex.Message}";
+            }
+        }
+    }
+
+    private static CaCertificateDto? ParseCert(byte[] bytes)
+    {
+        X509Certificate2? x509 = null;
+        try
+        {
+            x509 = X509CertificateLoader.LoadCertificate(bytes);
+        }
+        catch
+        {
+            try { x509 = X509Certificate2.CreateFromPem(System.Text.Encoding.ASCII.GetString(bytes)); }
+            catch { return null; }
+        }
+        if (x509 is null) return null;
+
+        return new CaCertificateDto
+        {
+            Subject = x509.Subject,
+            Issuer = x509.Issuer,
+            Thumbprint = x509.Thumbprint,
+            Base64 = Convert.ToBase64String(x509.RawData),
+            IsRoot = string.Equals(x509.Subject, x509.Issuer, StringComparison.OrdinalIgnoreCase),
+            NotAfter = x509.NotAfter.ToUniversalTime()
+        };
+    }
+
+    private void RemoveCert(CaCertificateDto cert) => _certs.Remove(cert);
+
+    private async Task SaveAsync()
+    {
+        if (_enabled && !_certs.Any(c => c.IsRoot))
+        {
+            Toast.Error("Configura almeno una Root CA prima di abilitare la validazione.");
+            return;
+        }
+
+        _saving = true;
+        try
+        {
+            await Api.SaveClientCertConfigAsync(new ClientCertConfigDto
+            {
+                Enabled = _enabled,
+                CheckRevocation = _checkRevocation,
+                RevocationMode = _revocationMode,
+                Certificates = _certs.ToList()
+            });
+            Toast.Success("Configurazione salvata.");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Salvataggio fallito: {ex.Message}");
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

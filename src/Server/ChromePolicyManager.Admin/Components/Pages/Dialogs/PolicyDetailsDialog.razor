@@ -1,0 +1,80 @@
+@using System.Text.Json
+
+<Modal Visible="Visible" VisibleChanged="VisibleChanged" Title="@Entry?.Name" Icon="bi-info-circle" Size="lg" OnClose="Close">
+    <ChildContent>
+    @if (Entry is not null)
+    {
+        <h6 class="text-brand">@Entry.DisplayName</h6>
+        <p class="text-body-secondary">@Entry.Description</p>
+        <div class="row g-3">
+            <div class="col-6">
+                <div class="small text-secondary">Category</div>
+                <div>@Entry.Category</div>
+            </div>
+            <div class="col-6">
+                <div class="small text-secondary">Data Type</div>
+                <div>@Entry.DataType</div>
+            </div>
+            <div class="col-6">
+                <div class="small text-secondary">Registry Key</div>
+                <div class="mono small">@Entry.RegistryKey</div>
+            </div>
+            <div class="col-6">
+                <div class="small text-secondary">Value Name</div>
+                <div class="mono small">@Entry.RegistryValueName</div>
+            </div>
+            <div class="col-6">
+                <div class="small text-secondary">Supported On</div>
+                <div>@Entry.SupportedOn</div>
+            </div>
+            <div class="col-6">
+                <div class="small text-secondary">Class</div>
+                <div>@Entry.PolicyClass</div>
+            </div>
+            @if (!string.IsNullOrEmpty(Entry.EnumOptions))
+            {
+                <div class="col-12">
+                    <div class="small text-secondary mb-1">Enum Options</div>
+                    <table class="table table-sm table-striped">
+                        <thead><tr><th>Value</th><th>Display Name</th></tr></thead>
+                        <tbody>
+                            @foreach (var opt in ParseEnumOptions(Entry.EnumOptions))
+                            {
+                                <tr><td class="mono">@opt.Value</td><td>@opt.Display</td></tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    }
+    </ChildContent>
+    <Footer>
+        <button type="button" class="btn btn-outline-secondary" @onclick="Close">Close</button>
+    </Footer>
+</Modal>
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public EventCallback<bool> VisibleChanged { get; set; }
+    [Parameter] public PolicyCatalogEntryDto? Entry { get; set; }
+
+    private async Task Close()
+    {
+        if (VisibleChanged.HasDelegate) await VisibleChanged.InvokeAsync(false);
+    }
+
+    private List<(string Value, string Display)> ParseEnumOptions(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            return doc.RootElement.EnumerateArray()
+                .Select(e => (
+                    Value: e.GetProperty("value").ToString(),
+                    Display: e.TryGetProperty("displayName", out var d) ? d.GetString() ?? "" : ""))
+                .ToList();
+        }
+        catch { return []; }
+    }
+}

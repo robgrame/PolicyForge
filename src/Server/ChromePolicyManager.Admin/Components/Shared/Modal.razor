@@ -1,0 +1,64 @@
+@namespace ChromePolicyManager.Admin.Components.Shared
+
+@if (Visible)
+{
+    <div class="modal fade show d-block" tabindex="-1" role="dialog" aria-modal="true"
+         @onclick="OnBackdropClick">
+        <div class="modal-dialog @SizeClass modal-dialog-centered modal-dialog-scrollable"
+             role="document" @onclick:stopPropagation="true">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h1 class="modal-title fs-5 d-flex align-items-center gap-2">
+                        @if (!string.IsNullOrEmpty(Icon))
+                        {
+                            <i class="bi @Icon text-brand"></i>
+                        }
+                        @Title
+                    </h1>
+                    <button type="button" class="btn-close" aria-label="Close" @onclick="CloseAsync"></button>
+                </div>
+                <div class="modal-body">
+                    @ChildContent
+                </div>
+                @if (Footer is not null)
+                {
+                    <div class="modal-footer">
+                        @Footer
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public EventCallback<bool> VisibleChanged { get; set; }
+    [Parameter] public string Title { get; set; } = "";
+    [Parameter] public string? Icon { get; set; }
+    [Parameter] public string Size { get; set; } = "md"; // sm | md | lg | xl
+    [Parameter] public bool CloseOnBackdrop { get; set; } = true;
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public RenderFragment? Footer { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private string SizeClass => Size switch
+    {
+        "sm" => "modal-sm",
+        "lg" => "modal-lg",
+        "xl" => "modal-xl",
+        _ => ""
+    };
+
+    private async Task CloseAsync()
+    {
+        if (VisibleChanged.HasDelegate) await VisibleChanged.InvokeAsync(false);
+        if (OnClose.HasDelegate) await OnClose.InvokeAsync();
+    }
+
+    private async Task OnBackdropClick()
+    {
+        if (CloseOnBackdrop) await CloseAsync();
+    }
+}

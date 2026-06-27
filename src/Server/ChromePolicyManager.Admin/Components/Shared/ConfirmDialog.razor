@@ -1,0 +1,48 @@
+@namespace ChromePolicyManager.Admin.Components.Shared
+@using ChromePolicyManager.Admin.Services
+@implements IDisposable
+@inject ConfirmService Confirm
+
+<Modal Visible="_visible" Title="@(_request?.Title ?? "")" Size="sm"
+       CloseOnBackdrop="false" OnClose="Cancel">
+    <ChildContent>
+    <p class="mb-0">@_request?.Message</p>
+    </ChildContent>
+    <Footer>
+        <button type="button" class="btn btn-outline-secondary" @onclick="Cancel">
+            @(_request?.CancelText ?? "Cancel")
+        </button>
+        <button type="button" class="btn @(_request?.Danger == true ? "btn-danger" : "btn-primary")"
+                @onclick="Ok">
+            @(_request?.ConfirmText ?? "OK")
+        </button>
+    </Footer>
+</Modal>
+
+@code {
+    private ConfirmRequest? _request;
+    private bool _visible;
+
+    protected override void OnInitialized() => Confirm.OnConfirm += HandleConfirm;
+
+    private Task HandleConfirm(ConfirmRequest request)
+    {
+        _request = request;
+        _visible = true;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private void Ok()
+    {
+        _request?.Completion.TrySetResult(true);
+        _visible = false;
+    }
+
+    private void Cancel()
+    {
+        _request?.Completion.TrySetResult(false);
+        _visible = false;
+    }
+
+    public void Dispose() => Confirm.OnConfirm -= HandleConfirm;
+}

@@ -1,0 +1,134 @@
+@implements IDisposable
+@inject NavigationManager Nav
+
+<nav class="navbar navbar-expand-lg navbar-brand-blue shadow-sm sticky-top">
+    <div class="container-fluid px-4">
+        <a class="navbar-brand d-flex align-items-center gap-2" href="">
+            <i class="bi bi-google fs-4"></i>
+            <span>Chrome Policy Manager</span>
+            <span class="brand-sub d-none d-md-inline">Admin</span>
+        </a>
+        <button class="navbar-toggler border-0 text-white" type="button" data-bs-toggle="collapse"
+                data-bs-target="#mainNav" aria-controls="mainNav" aria-expanded="false" aria-label="Toggle navigation">
+            <i class="bi bi-list fs-3"></i>
+        </button>
+        <div class="collapse navbar-collapse" id="mainNav">
+            <ul class="navbar-nav me-auto mb-2 mb-lg-0 gap-lg-1">
+                <li class="nav-item">
+                    <a class="nav-link @Active("", true)" href="">
+                        <i class="bi bi-speedometer2 me-1"></i> Dashboard
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link @Active("catalog")" href="catalog">
+                        <i class="bi bi-collection me-1"></i> Catalog
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link @Active("policies")" href="policies">
+                        <i class="bi bi-shield-check me-1"></i> Policies
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link @Active("assignments")" href="assignments">
+                        <i class="bi bi-diagram-3 me-1"></i> Assignments
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link @Active("devices")" href="devices">
+                        <i class="bi bi-pc-display me-1"></i> Devices
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link @Active("configuration")" href="configuration">
+                        <i class="bi bi-shield-lock me-1"></i> Configurazione
+                    </a>
+                </li>
+            </ul>
+            <button class="btn btn-sm btn-outline-light d-flex align-items-center gap-1"
+                    type="button" title="Toggle light/dark theme" @onclick="ToggleTheme">
+                <i class="bi @(_dark ? "bi-sun-fill" : "bi-moon-stars-fill")"></i>
+                <span class="d-lg-none">Theme</span>
+            </button>
+            <AuthorizeView>
+                <Authorized>
+                    <div class="dropdown ms-lg-2">
+                        <button class="btn btn-sm btn-outline-light dropdown-toggle d-flex align-items-center gap-1"
+                                type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="bi bi-person-circle"></i>
+                            <span class="d-none d-lg-inline">@(context.User.Identity?.Name ?? "Account")</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><span class="dropdown-item-text small text-muted">@context.User.Identity?.Name</span></li>
+                            <li><span class="dropdown-item-text small text-muted">@RoleLabel(context)</span></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="MicrosoftIdentity/Account/SignOut"><i class="bi bi-box-arrow-right me-1"></i> Esci</a></li>
+                        </ul>
+                    </div>
+                </Authorized>
+                <NotAuthorized>
+                    <a class="btn btn-sm btn-outline-light d-flex align-items-center gap-1 ms-lg-2"
+                       href="MicrosoftIdentity/Account/SignIn">
+                        <i class="bi bi-box-arrow-in-right"></i>
+                        <span>Accedi</span>
+                    </a>
+                </NotAuthorized>
+            </AuthorizeView>
+        </div>
+    </div>
+</nav>
+
+@code {
+    private string? _current;
+    private bool _dark;
+
+    protected override void OnInitialized()
+    {
+        _current = Nav.ToBaseRelativePath(Nav.Uri);
+        Nav.LocationChanged += OnLocationChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _dark = await Js.InvokeAsync<bool>("cpmTheme.isDark");
+            StateHasChanged();
+        }
+    }
+
+    [Inject] private IJSRuntime Js { get; set; } = default!;
+
+    private async Task ToggleTheme()
+    {
+        _dark = await Js.InvokeAsync<bool>("cpmTheme.toggle");
+    }
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        _current = Nav.ToBaseRelativePath(e.Location);
+        InvokeAsync(StateHasChanged);
+    }
+
+    private static string RoleLabel(AuthenticationState context)
+    {
+        var roles = context.User.Claims
+            .Where(c => c.Type == "roles" || c.Type == System.Security.Claims.ClaimTypes.Role)
+            .Select(c => c.Value.Replace("PolicyManager.", string.Empty))
+            .Distinct()
+            .ToArray();
+        return roles.Length == 0 ? "Nessun ruolo" : string.Join(", ", roles);
+    }
+
+    private string Active(string path, bool exact = false)
+    {
+        var cur = (_current ?? string.Empty);
+        var q = cur.IndexOf('?');
+        if (q >= 0) cur = cur[..q];
+        cur = cur.Trim('/');
+        if (exact) return cur.Length == 0 ? "active" : string.Empty;
+        return cur.Equals(path, StringComparison.OrdinalIgnoreCase) ? "active" : string.Empty;
+    }
+
+    public void Dispose() => Nav.LocationChanged -= OnLocationChanged;
+}

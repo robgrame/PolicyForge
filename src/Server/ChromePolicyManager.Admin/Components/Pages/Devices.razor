@@ -1,0 +1,370 @@
+@page "/devices"
+@attribute [Authorize(Policy = "CanRead")]
+@inject PolicyApiClient Api
+@inject ToastService Toast
+@inject IConfiguration Config
+@inject Microsoft.Identity.Web.ITokenAcquisition TokenAcquisition
+@implements IAsyncDisposable
+@using Microsoft.AspNetCore.SignalR.Client
+
+<PageTitle>Device Monitoring - Chrome Policy Manager</PageTitle>
+
+<div class="page-header">
+    <i class="bi bi-pc-display fs-3"></i>
+    <h1 class="h3 mb-0">Device Monitoring</h1>
+    <span class="ms-auto small d-flex align-items-center gap-1" title="@_liveTitle">
+        <i class="bi bi-circle-fill @(_live ? "text-success" : "text-secondary")" style="font-size:.55rem;"></i>
+        @(_live ? "Live" : "Offline")
+    </span>
+</div>
+
+<ul class="nav nav-tabs mb-3">
+    <li class="nav-item">
+        <button class="nav-link @(_tab == 0 ? "active" : "")" @onclick="() => _tab = 0">
+            <i class="bi bi-pc-display me-1"></i> All Devices
+        </button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link @(_tab == 1 ? "active" : "")" @onclick="() => _tab = 1">
+            <i class="bi bi-wifi-off me-1"></i> Offline
+            @if (_offlineCount > 0) { <span class="badge text-bg-warning ms-1">@_offlineCount</span> }
+        </button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link @(_tab == 2 ? "active" : "")" @onclick="() => _tab = 2">
+            <i class="bi bi-exclamation-triangle me-1"></i> Errors
+            @if (_errorCount > 0) { <span class="badge text-bg-danger ms-1">@_errorCount</span> }
+        </button>
+    </li>
+</ul>
+
+@if (_tab == 0)
+{
+    @if (_loadingDashboard)
+    {
+        <div class="text-center py-4"><div class="spinner-border text-primary"></div></div>
+    }
+    else if (_dashboard?.RecentReports.Any() == true)
+    {
+        <div class="input-group mb-3" style="max-width:360px;">
+            <span class="input-group-text"><i class="bi bi-search"></i></span>
+            <input class="form-control" placeholder="Search devices..." @bind="_searchString" @bind:event="oninput" />
+        </div>
+        <div class="card">
+            <div class="table-responsive">
+                <table class="table table-hover table-striped align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Device</th><th>Status</th><th>Policy Hash</th><th>Chrome</th>
+                            <th>OS</th><th>Model</th><th>Script</th><th>Keys</th><th>Last Contact</th><th>Err</th><th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var d in Filtered(_dashboard.RecentReports))
+                        {
+                            <tr>
+                                <td>
+                                    <div class="d-flex align-items-center gap-1">
+                                        <i class="bi bi-display text-@DeviceIcon(d)"></i>
+                                        <strong>@d.DeviceName</strong>
+                                    </div>
+                                    <div class="small text-secondary mono">@Truncate(d.DeviceId, 8)…</div>
+                                </td>
+                                <td><span class="badge text-bg-@StatusBadge(d.Status)">@d.Status</span></td>
+                                <td class="mono small" title="@(d.AppliedPolicyHash ?? "None")">@Truncate(d.AppliedPolicyHash, 12)</td>
+                                <td>@(d.ChromeVersion ?? "—")</td>
+                                <td>
+                                    @(d.OsVersion ?? "—")
+                                    @if (!string.IsNullOrEmpty(d.OsBuild)) { <div class="small text-secondary">Build @d.OsBuild</div> }
+                                </td>
+                                <td>@(string.IsNullOrEmpty(d.Manufacturer) && string.IsNullOrEmpty(d.Model) ? "—" : $"{d.Manufacturer} {d.Model}")</td>
+                                <td class="mono small">@(d.ScriptVersion ?? "—")</td>
+                                <td><span class="badge text-bg-success-subtle text-success">+@d.PolicyKeysWritten</span></td>
+                                <td title="@d.LastContact.ToLocalTime().ToString("F")">@RelTime(d.LastContact)</td>
+                                <td>
+                                    @if (!string.IsNullOrEmpty(d.Errors))
+                                    {
+                                        <i class="bi bi-exclamation-triangle-fill text-danger" title="@d.Errors"></i>
+                                    }
+                                </td>
+                                <td>
+                                    <button class="btn btn-sm btn-outline-primary" title="Trigger on-demand remediation"
+                                            @onclick="() => TriggerDeviceRemediation(d)">
+                                        <i class="bi bi-play-fill"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-info">
+            No device reports yet. Devices will check in after the Proactive Remediation runs (scheduled hourly).
+        </div>
+    }
+}
+else if (_tab == 1)
+{
+    <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+        <span>Devices that haven't checked in within:</span>
+        <select class="form-select w-auto" @bind="_offlineHours" @bind:after="() => LoadOfflineDevices(_offlineHours)">
+            <option value="4">4 hours</option>
+            <option value="12">12 hours</option>
+            <option value="24">24 hours</option>
+            <option value="72">3 days</option>
+            <option value="168">7 days</option>
+        </select>
+        <button class="btn btn-sm btn-outline-secondary" @onclick="() => LoadOfflineDevices(_offlineHours)">Refresh</button>
+    </div>
+    @if (_offlineDevices.Any())
+    {
+        <div class="card">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead><tr><th>Device</th><th>Last Contact</th><th>Last Status</th><th>Last Policy Hash</th></tr></thead>
+                    <tbody>
+                        @foreach (var d in _offlineDevices)
+                        {
+                            <tr>
+                                <td><strong>@d.DeviceName</strong></td>
+                                <td class="text-warning">@RelTime(d.LastContact)</td>
+                                <td>@d.Status</td>
+                                <td class="mono small">@Truncate(d.AppliedPolicyHash, 12)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-success">All devices have checked in recently.</div>
+    }
+}
+else
+{
+    @if (_errorDevices.Any())
+    {
+        <div class="card">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead><tr><th>Device</th><th>Status</th><th>Error Details</th><th>Last Contact</th></tr></thead>
+                    <tbody>
+                        @foreach (var d in _errorDevices)
+                        {
+                            <tr>
+                                <td><strong>@d.DeviceName</strong></td>
+                                <td><span class="badge text-bg-danger">@d.Status</span></td>
+                                <td class="small text-truncate" style="max-width:400px;">@d.Errors</td>
+                                <td>@RelTime(d.LastContact)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-success">No devices reporting errors.</div>
+    }
+}
+
+@code {
+    private int _tab = 0;
+    private MonitoringDashboardDto? _dashboard;
+    private List<DeviceStateDto> _offlineDevices = [];
+    private List<DeviceStateDto> _errorDevices = [];
+    private bool _loadingDashboard = true;
+    private string _searchString = "";
+    private int _offlineHours = 24;
+    private int _offlineCount;
+    private int _errorCount;
+    private HubConnection? _hub;
+    private bool _live;
+    private string _liveTitle = "Real-time policy status updates";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Task.WhenAll(LoadDashboard(), LoadOfflineDevices(24), LoadErrors());
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        await ConnectHubAsync();
+    }
+
+    private async Task ConnectHubAsync()
+    {
+        var apiBaseUrl = Config["ApiBaseUrl"] ?? "https://cpm-dev-api.azurewebsites.net";
+        var hubUrl = $"{apiBaseUrl.TrimEnd('/')}{PolicyStatusHubPath}";
+        var apiScopes = Config.GetSection("Api:Scopes").Get<string[]>() ?? [];
+        try
+        {
+            _hub = new HubConnectionBuilder()
+                .WithUrl(hubUrl, options =>
+                {
+                    // Acquire a delegated access token for the API so the hub can enforce
+                    // [Authorize] (Hubs:RequireAuth=true on the API). No-op when no scope is
+                    // configured: the connection stays anonymous and still works.
+                    if (apiScopes.Length > 0)
+                    {
+                        options.AccessTokenProvider = async () =>
+                        {
+                            try { return await TokenAcquisition.GetAccessTokenForUserAsync(apiScopes); }
+                            catch { return null; }
+                        };
+                    }
+                })
+                .WithAutomaticReconnect()
+                .Build();
+
+            _hub.On<DevicePolicyStatusUpdate>(PolicyStatusEventName, OnStatusChanged);
+            _hub.Reconnected += _ => InvokeAsync(() => { _live = true; StateHasChanged(); });
+            _hub.Reconnecting += _ => InvokeAsync(() => { _live = false; StateHasChanged(); });
+            _hub.Closed += _ => InvokeAsync(() => { _live = false; StateHasChanged(); return Task.CompletedTask; });
+
+            await _hub.StartAsync();
+            _live = true;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            _live = false;
+            _liveTitle = $"Live updates unavailable: {ex.Message}";
+        }
+    }
+
+    private async Task OnStatusChanged(DevicePolicyStatusUpdate update)
+    {
+        if (_dashboard is null) return;
+
+        var existing = _dashboard.RecentReports.FirstOrDefault(d => d.DeviceId == update.DeviceId);
+        if (existing is null)
+        {
+            existing = new DeviceStateDto { DeviceId = update.DeviceId };
+            _dashboard.RecentReports.Insert(0, existing);
+        }
+
+        existing.DeviceName = string.IsNullOrEmpty(update.DeviceName) ? existing.DeviceName : update.DeviceName;
+        existing.Status = update.Status;
+        existing.Errors = update.Errors;
+        existing.ScriptVersion = update.ScriptVersion ?? existing.ScriptVersion;
+        if (update.PolicyKeysWritten.HasValue) existing.PolicyKeysWritten = update.PolicyKeysWritten.Value;
+        if (update.PolicyKeysRemoved.HasValue) existing.PolicyKeysRemoved = update.PolicyKeysRemoved.Value;
+        existing.LastContact = update.ReportedUtc.UtcDateTime;
+
+        await InvokeAsync(StateHasChanged);
+        Toast.Info($"{existing.DeviceName}: {update.Status}");
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_hub is not null)
+        {
+            await _hub.DisposeAsync();
+        }
+    }
+
+    private const string PolicyStatusHubPath = "/hubs/policy-status";
+    private const string PolicyStatusEventName = "DevicePolicyStatusChanged";
+
+    private sealed record DevicePolicyStatusUpdate
+    {
+        public string DeviceId { get; init; } = "";
+        public string DeviceName { get; init; } = "";
+        public string? UserPrincipalName { get; init; }
+        public string Status { get; init; } = "";
+        public string? AppliedVersion { get; init; }
+        public string? ScriptVersion { get; init; }
+        public int? PolicyKeysWritten { get; init; }
+        public int? PolicyKeysRemoved { get; init; }
+        public string? Errors { get; init; }
+        public DateTimeOffset ReportedUtc { get; init; }
+    }
+
+    private async Task LoadDashboard()
+    {
+        _loadingDashboard = true;
+        try { _dashboard = await Api.GetDashboardAsync(); }
+        catch (Exception ex) { Toast.Error($"Error: {ex.Message}"); }
+        finally { _loadingDashboard = false; }
+    }
+
+    private async Task LoadOfflineDevices(int hours)
+    {
+        _offlineHours = hours;
+        try
+        {
+            _offlineDevices = await Api.GetOfflineDevicesAsync(hours);
+            _offlineCount = _offlineDevices.Count;
+        }
+        catch { _offlineDevices = []; }
+    }
+
+    private async Task LoadErrors()
+    {
+        try
+        {
+            _errorDevices = await Api.GetErrorDevicesAsync();
+            _errorCount = _errorDevices.Count;
+        }
+        catch { _errorDevices = []; }
+    }
+
+    private IEnumerable<DeviceStateDto> Filtered(IEnumerable<DeviceStateDto> items) =>
+        string.IsNullOrWhiteSpace(_searchString)
+            ? items
+            : items.Where(d =>
+                d.DeviceName.Contains(_searchString, StringComparison.OrdinalIgnoreCase) ||
+                d.DeviceId.Contains(_searchString, StringComparison.OrdinalIgnoreCase));
+
+    private static string StatusBadge(string status) => status switch
+    {
+        "Compliant" => "success",
+        "PartiallyApplied" => "warning",
+        "Error" => "danger",
+        _ => "secondary"
+    };
+
+    private static string DeviceIcon(DeviceStateDto d)
+    {
+        if ((DateTime.UtcNow - d.LastContact).TotalHours > 24) return "warning";
+        return d.Status == "Compliant" ? "success" : "danger";
+    }
+
+    private static string RelTime(DateTime utcTime)
+    {
+        var diff = DateTime.UtcNow - utcTime;
+        if (diff.TotalMinutes < 5) return "Just now";
+        if (diff.TotalMinutes < 60) return $"{(int)diff.TotalMinutes}m ago";
+        if (diff.TotalHours < 24) return $"{(int)diff.TotalHours}h ago";
+        return $"{(int)diff.TotalDays}d ago";
+    }
+
+    private static string Truncate(string? value, int maxLength)
+    {
+        if (string.IsNullOrEmpty(value)) return "—";
+        return value.Length <= maxLength ? value : value[..maxLength] + "…";
+    }
+
+    private async Task TriggerDeviceRemediation(DeviceStateDto device)
+    {
+        try
+        {
+            var result = await Api.TriggerDeviceRemediationAsync(device.DeviceId);
+            if (result.CommandsFailed > 0) Toast.Warning($"{device.DeviceName}: {result.Message}");
+            else Toast.Success($"{device.DeviceName}: {result.Message}");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Error triggering remediation for {device.DeviceName}: {ex.Message}");
+        }
+    }
+}

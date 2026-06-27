@@ -1,0 +1,12 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
+    "ServiceBus__fullyQualifiedNamespace": "<your-namespace>.servicebus.windows.net",
+    "ServiceBus:CommandQueue": "cpm-commands",
+    "ServiceBus:CommandStatusQueue": "cpm-command-status",
+    "PushRemediation:ScriptPolicyId": "",
+    "PushRemediation:BatchSize": "100"
+  }
+}

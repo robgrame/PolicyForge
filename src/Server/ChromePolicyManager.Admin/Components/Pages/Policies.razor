@@ -1,0 +1,220 @@
+@page "/policies"
+@attribute [Authorize(Policy = "CanRead")]
+@inject PolicyApiClient Api
+@inject ToastService Toast
+@inject ConfirmService Confirm
+
+<PageTitle>Policies - Chrome Policy Manager</PageTitle>
+
+<div class="d-flex align-items-center mb-4">
+    <div class="page-header mb-0">
+        <i class="bi bi-shield-check fs-3"></i>
+        <h1 class="h3 mb-0">Policy Sets</h1>
+    </div>
+    <button class="btn btn-primary ms-auto" @onclick="() => _showCreate = true">
+        <i class="bi bi-plus-lg me-1"></i> New Policy Set
+    </button>
+</div>
+
+@if (_loading)
+{
+    <div class="text-center py-5"><div class="spinner-border text-primary"></div></div>
+}
+else
+{
+    <div class="row g-3">
+        @foreach (var policy in _policies)
+        {
+            <div class="col-12 col-md-6 col-lg-4">
+                <div class="card h-100">
+                    <div class="card-header d-flex align-items-start">
+                        <div>
+                            <h6 class="mb-0">@policy.Name</h6>
+                            <small class="text-secondary">@policy.Description</small>
+                        </div>
+                        <div class="ms-auto d-flex gap-1">
+                            <button class="btn btn-sm btn-outline-primary" title="Add Version"
+                                    @onclick="() => OpenVersionDialog(policy)"><i class="bi bi-plus-lg"></i></button>
+                            <button class="btn btn-sm btn-outline-danger" title="Delete Policy Set"
+                                    @onclick="() => DeletePolicySet(policy)"><i class="bi bi-trash"></i></button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <p class="mb-2"><strong>@policy.Versions.Count</strong> version(s)</p>
+                        @if (policy.Versions.Any())
+                        {
+                            <table class="table table-sm table-hover align-middle mb-0">
+                                <thead><tr><th>Version</th><th>Chrome ADMX</th><th>Status</th><th>Actions</th></tr></thead>
+                                <tbody>
+                                    @foreach (var v in policy.Versions.OrderByDescending(x => x.CreatedAt))
+                                    {
+                                        <tr>
+                                            <td>@v.Version</td>
+                                            <td>
+                                                @if (!string.IsNullOrEmpty(v.AdmxVersion))
+                                                {
+                                                    <span class="badge text-bg-light border" title="Chrome ADMX template version this policy was authored against">
+                                                        <i class="bi bi-google me-1"></i>@v.AdmxVersion
+                                                    </span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-secondary">—</span>
+                                                }
+                                            </td>
+                                            <td><span class="badge text-bg-@VersionBadge(v.Status)">@v.Status</span></td>
+                                            <td>
+                                                @if (v.Status == PolicyVersionStatus.Draft)
+                                                {
+                                                    <button class="btn btn-sm btn-link text-success p-0 me-2" title="Promote to Active"
+                                                            @onclick="() => PromoteVersion(v)"><i class="bi bi-upload"></i></button>
+                                                }
+                                                @if (v.Status == PolicyVersionStatus.Archived)
+                                                {
+                                                    <button class="btn btn-sm btn-link text-warning p-0 me-2" title="Rollback to this version"
+                                                            @onclick="() => RollbackToVersion(policy, v)"><i class="bi bi-arrow-counterclockwise"></i></button>
+                                                }
+                                                @if (v.Status == PolicyVersionStatus.Active)
+                                                {
+                                                    <button class="btn btn-sm btn-link text-primary p-0 me-2" title="Assign to Entra Group"
+                                                            @onclick="() => AssignToGroup(policy, v)"><i class="bi bi-person-plus"></i></button>
+                                                }
+                                                <button class="btn btn-sm btn-link p-0" title="View Settings"
+                                                        @onclick="() => ViewSettings(v)"><i class="bi bi-eye"></i></button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+                        else
+                        {
+                            <div class="alert alert-info py-2 mb-0">No versions yet</div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+<CreatePolicyDialog @bind-Visible="_showCreate" OnCompleted="LoadPolicies" />
+<CreateVersionDialog @bind-Visible="_showVersion" PolicySet="_versionTarget" OnCompleted="LoadPolicies" />
+<CreateAssignmentDialog @bind-Visible="_showAssign" PolicySetName="_assignName"
+                        PolicySetVersionId="_assignVersionId" VersionLabel="_assignLabel"
+                        OnCompleted="OnAssignmentCreated" />
+<ViewSettingsDialog @bind-Visible="_showSettings" Version="_settingsVersion" />
+
+@code {
+    private List<PolicySetDto> _policies = [];
+    private bool _loading = true;
+
+    private bool _showCreate;
+    private bool _showVersion;
+    private PolicySetDto? _versionTarget;
+    private bool _showAssign;
+    private string? _assignName;
+    private Guid? _assignVersionId;
+    private string? _assignLabel;
+    private bool _showSettings;
+    private PolicySetVersionDto? _settingsVersion;
+
+    protected override async Task OnInitializedAsync() => await LoadPolicies();
+
+    private async Task LoadPolicies()
+    {
+        _loading = true;
+        try { _policies = await Api.GetPoliciesAsync(); }
+        catch (Exception ex) { Toast.Error($"Failed to load policies: {ex.Message}"); }
+        finally { _loading = false; }
+    }
+
+    private void OpenVersionDialog(PolicySetDto policy)
+    {
+        _versionTarget = policy;
+        _showVersion = true;
+    }
+
+    private async Task PromoteVersion(PolicySetVersionDto version)
+    {
+        try
+        {
+            await Api.PromoteVersionAsync(version.Id);
+            Toast.Success($"Version {version.Version} promoted to Active!");
+            await LoadPolicies();
+        }
+        catch (Exception ex) { Toast.Error($"Error: {ex.Message}"); }
+    }
+
+    private async Task RollbackToVersion(PolicySetDto policy, PolicySetVersionDto version)
+    {
+        var confirm = await Confirm.ConfirmAsync("Rollback",
+            $"Reactivate version {version.Version}? The current active version will be archived.",
+            confirmText: "Rollback");
+        if (confirm)
+        {
+            try
+            {
+                await Api.RollbackVersionAsync(policy.Id, version.Id);
+                Toast.Success($"Rolled back to version {version.Version}!");
+                await LoadPolicies();
+            }
+            catch (Exception ex) { Toast.Error($"Error: {ex.Message}"); }
+        }
+    }
+
+    private void AssignToGroup(PolicySetDto policy, PolicySetVersionDto version)
+    {
+        _assignName = policy.Name;
+        _assignVersionId = version.Id;
+        _assignLabel = version.Version;
+        _showAssign = true;
+    }
+
+    private async Task DeletePolicySet(PolicySetDto policy)
+    {
+        var confirm = await Confirm.ConfirmAsync("Delete Policy Set",
+            $"Delete \"{policy.Name}\" and all its versions? This cannot be undone.",
+            confirmText: "Delete", danger: true);
+        if (!confirm) return;
+        try
+        {
+            await Api.DeletePolicySetAsync(policy.Id);
+            Toast.Success($"Policy set '{policy.Name}' deleted");
+            await LoadPolicies();
+        }
+        catch (InvalidOperationException)
+        {
+            var forceConfirm = await Confirm.ConfirmAsync("Force Delete",
+                "This policy set has orphaned assignments that block deletion. Force delete will remove them too. Continue?",
+                confirmText: "Force Delete", danger: true);
+            if (forceConfirm)
+            {
+                try
+                {
+                    await Api.DeletePolicySetAsync(policy.Id, force: true);
+                    Toast.Success($"Policy set '{policy.Name}' force deleted with orphaned assignments");
+                    await LoadPolicies();
+                }
+                catch (Exception ex) { Toast.Error($"Error: {ex.Message}"); }
+            }
+        }
+        catch (Exception ex) { Toast.Error($"Error: {ex.Message}"); }
+    }
+
+    private void ViewSettings(PolicySetVersionDto version)
+    {
+        _settingsVersion = version;
+        _showSettings = true;
+    }
+
+    private void OnAssignmentCreated() => Toast.Success("Assignment created!");
+
+    private static string VersionBadge(PolicyVersionStatus status) => status switch
+    {
+        PolicyVersionStatus.Active => "success",
+        PolicyVersionStatus.Draft => "info",
+        PolicyVersionStatus.Archived => "secondary",
+        _ => "secondary"
+    };
+}

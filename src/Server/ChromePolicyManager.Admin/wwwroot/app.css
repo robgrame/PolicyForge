@@ -1,0 +1,55 @@
+/* Chrome Policy Manager - Admin theme (Bootstrap 5 override) */
+:root {
+    --brand-blue: #1a73e8;
+    --brand-blue-dark: #1558b0;
+    --brand-blue-light: #4285f4;
+    --brand-blue-50: #e8f0fe;
+    --focus-ring: rgba(26, 115, 232, 0.35);
+    --brand-gradient: linear-gradient(90deg, #1a73e8 0%, #4285f4 100%);
+}
+html, body { font-family: 'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f5f7fb; }
+html { height: 100%; }
+body { min-height: 100vh; display: flex; flex-direction: column; }
+[data-bs-theme="dark"] {
+    --brand-blue: #8ab4f8; --brand-blue-dark: #669df6; --brand-blue-light: #aecbfa;
+    --brand-blue-50: #1b2738; --focus-ring: rgba(138, 180, 248, 0.4);
+}
+[data-bs-theme="dark"] html, [data-bs-theme="dark"] body { background-color: #14181b; }
+main { flex: 1 0 auto; }
+a, .btn-link { color: var(--brand-blue-dark); }
+a:hover { color: var(--brand-blue); }
+.btn-primary { color: #fff; background-color: var(--brand-blue); border-color: var(--brand-blue-dark); }
+.btn-primary:hover, .btn-primary:focus { background-color: var(--brand-blue-dark); border-color: var(--brand-blue-dark); }
+.btn-outline-primary { color: var(--brand-blue-dark); border-color: var(--brand-blue-dark); }
+.btn-outline-primary:hover, .btn-outline-primary:focus { color: #fff; background-color: var(--brand-blue); border-color: var(--brand-blue); }
+.btn:focus, .btn:active:focus, .form-control:focus, .form-select:focus, .form-check-input:focus {
+    box-shadow: 0 0 0 0.1rem #ffffff, 0 0 0 0.25rem var(--focus-ring); border-color: var(--brand-blue);
+}
+[data-bs-theme="dark"] .btn:focus, [data-bs-theme="dark"] .form-control:focus, [data-bs-theme="dark"] .form-select:focus {
+    box-shadow: 0 0 0 0.1rem #14181b, 0 0 0 0.25rem var(--focus-ring);
+}
+.text-brand { color: var(--brand-blue) !important; }
+.navbar-brand-blue { background: var(--brand-gradient); }
+.navbar-brand-blue .nav-link { color: rgba(255,255,255,0.85); font-weight: 500; border-radius: 0.4rem; padding-inline: 0.7rem; }
+.navbar-brand-blue .nav-link:hover, .navbar-brand-blue .nav-link:focus { color: #fff; background-color: rgba(255,255,255,0.15); }
+.navbar-brand-blue .nav-link.active { color: #fff; background-color: rgba(255,255,255,0.22); }
+.navbar-brand-blue .navbar-brand { color: #fff; font-weight: 600; }
+.brand-sub { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.75; border-left: 1px solid rgba(255,255,255,0.4); padding-left: 0.5rem; }
+.card { border-color: rgba(0,0,0,0.08); box-shadow: 0 1px 3px rgba(0,0,0,0.06); border-radius: 0.6rem; }
+.stat-card { transition: transform 0.12s ease, box-shadow 0.12s ease; }
+.stat-card:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,0.10); }
+.stat-icon { width: 3rem; height: 3rem; display: inline-flex; align-items: center; justify-content: center; border-radius: 0.75rem; font-size: 1.4rem; }
+.table > :not(caption) > * > * { border-bottom-color: rgba(0,0,0,0.06); }
+.table thead th { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--bs-secondary-color); }
+.mono { font-family: 'Cascadia Code', Consolas, 'Courier New', monospace; }
+h1, h2, h3, .h1, .h2, .h3 { color: #1f2937; font-weight: 600; }
+[data-bs-theme="dark"] h1, [data-bs-theme="dark"] h2, [data-bs-theme="dark"] h3 { color: #e3ece7; }
+.page-header { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1.25rem; }
+.page-header .bi { color: var(--brand-blue); }
+.toast-container { z-index: 1100; }
+.app-footer { flex-shrink: 0; padding: 0.85rem 0; font-size: 0.85rem; color: var(--bs-secondary-color); border-top: 1px solid rgba(0,0,0,0.08); background-color: rgba(255,255,255,0.6); }
+[data-bs-theme="dark"] .app-footer { background-color: rgba(0,0,0,0.2); }
+.blazor-error-boundary { background: #b32121; padding: 1rem; color: white; border-radius: 0.4rem; }
+.blazor-error-boundary::after { content: "An error has occurred."; }
+#blazor-error-ui { background: #ffefc1; bottom: 0; box-shadow: 0 -1px 2px rgba(0,0,0,0.2); display: none; left: 0; padding: 0.6rem 1.25rem 0.7rem 1.25rem; position: fixed; width: 100%; z-index: 1200; }
+#blazor-error-ui .dismiss { cursor: pointer; position: absolute; right: 0.75rem; top: 0.5rem; }

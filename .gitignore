@@ -1,0 +1,49 @@
+# ChromePolicyManager
+
+## Binaries & build output
+bin/
+obj/
+publish/
+*.dll
+*.exe
+*.pdb
+*.zip
+
+## IDE
+.vs/
+.vscode/
+*.user
+*.suo
+
+## .NET
+*.nupkg
+project.lock.json
+*.nuget.props
+*.nuget.targets
+
+## Database (dev)
+*.db
+*.db-shm
+*.db-wal
+
+## Secrets
+appsettings.Development.json
+appsettings.*.local.json
+
+## Logs
+*.log
+logs/
+
+## OS
+Thumbs.db
+.DS_Store
+
+tools/
+*.zip
+publish/
+
+## Infra deployment artifacts
+infra/deployment-output-*.json
+infra/main.json
+
+artifacts/

@@ -1,0 +1,318 @@
+@using System.Text.Json
+@inject PolicyApiClient Api
+@inject ToastService Toast
+
+<Modal Visible="Visible" VisibleChanged="VisibleChanged" Title="@($"New Version — {PolicySet?.Name}")"
+       Icon="bi-plus-square" Size="lg" OnClose="Cancel">
+    <ChildContent>
+    <div class="mb-3">
+        <label class="form-label">Version <span class="text-danger">*</span></label>
+        <input class="form-control" @bind="_version" @bind:event="oninput" placeholder="e.g. 1.0.0" />
+        @if (!string.IsNullOrEmpty(_catalogVersion))
+        {
+            <div class="form-text">
+                <i class="bi bi-google me-1"></i>
+                This version will be tagged with the current Chrome ADMX template:
+                <strong>@_catalogVersion</strong>
+            </div>
+        }
+    </div>
+
+    <div class="d-flex align-items-center mb-2">
+        <span class="fw-semibold">Chrome Policy Settings (@_currentSettings.Count)</span>
+        <button type="button" class="btn btn-sm btn-outline-primary ms-auto"
+                @onclick="ShowAddPolicy" disabled="@_addingPolicy">
+            <i class="bi bi-plus-lg me-1"></i> Add Policy
+        </button>
+    </div>
+
+    @if (_currentSettings.Any())
+    {
+        <div class="table-responsive mb-3" style="max-height:200px; overflow-y:auto;">
+            <table class="table table-sm table-hover align-middle mb-0">
+                <thead><tr><th>Policy Name</th><th>Value</th><th style="width:40px;"></th></tr></thead>
+                <tbody>
+                    @foreach (var entry in _currentSettings)
+                    {
+                        <tr>
+                            <td class="mono small">@entry.Key</td>
+                            <td class="mono small">@FormatValue(entry.Value)</td>
+                            <td>
+                                <button type="button" class="btn btn-sm btn-link text-danger p-0"
+                                        @onclick="() => RemovePolicy(entry.Key)" title="Remove">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-info py-2 mb-3">
+            No policies configured yet. Use <strong>Add Policy</strong> to add Chrome policies with their values.
+        </div>
+    }
+
+    @if (_addingPolicy)
+    {
+        <div class="card border-primary mb-3">
+            <div class="card-body">
+                <h6 class="card-title">Add Chrome Policy</h6>
+                @if (_loadingCatalog)
+                {
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="spinner-border spinner-border-sm"></span>
+                        <span class="small">Loading policy catalog…</span>
+                    </div>
+                }
+                else if (!_catalogEntries.Any())
+                {
+                    <div class="alert alert-warning py-2 mb-0">
+                        No policies in catalog. Import the Chrome policy catalog first from the Catalog page.
+                    </div>
+                }
+                else
+                {
+                    <div class="mb-2 position-relative">
+                        <label class="form-label">Search policies by name</label>
+                        <input class="form-control" value="@_catalogSearch"
+                               @oninput="OnCatalogSearch" placeholder="Type to search..." autocomplete="off" />
+                        @if (_catalogResults.Count > 0 && _selectedEntry is null)
+                        {
+                            <ul class="list-group position-absolute w-100 shadow" style="z-index:1056; max-height:220px; overflow-y:auto;">
+                                @foreach (var e in _catalogResults)
+                                {
+                                    <li class="list-group-item list-group-item-action" role="button"
+                                        @onclick="() => SelectEntry(e)">
+                                        @e.DisplayName <span class="badge text-bg-secondary ms-1">@e.DataType</span>
+                                    </li>
+                                }
+                            </ul>
+                        }
+                    </div>
+
+                    @if (_selectedEntry is not null)
+                    {
+                        <div class="small text-secondary mb-2">
+                            Registry: <code>@_selectedEntry.RegistryKey\@_selectedEntry.RegistryValueName</code>
+                        </div>
+                        <label class="form-label fw-semibold">Value</label>
+                        @switch (_selectedEntry.DataType)
+                        {
+                            case "Boolean":
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="cvBool" @bind="_boolValue" />
+                                    <label class="form-check-label" for="cvBool">@(_boolValue ? "Enabled" : "Disabled")</label>
+                                </div>
+                                break;
+                            case "Integer":
+                                <input type="number" class="form-control" @bind="_intValue" placeholder="Value (DWORD)" />
+                                break;
+                            case "String":
+                                <input class="form-control" @bind="_stringValue" placeholder="Value (REG_SZ)" />
+                                break;
+                            case "Enum":
+                                <select class="form-select" @bind="_stringValue">
+                                    @foreach (var opt in ParseEnumOptions(_selectedEntry.EnumOptions ?? "[]"))
+                                    {
+                                        <option value="@opt.Value">@opt.Display (@opt.Value)</option>
+                                    }
+                                </select>
+                                break;
+                            case "List":
+                            case "MultiString":
+                                <textarea class="form-control" rows="3" @bind="_stringValue"
+                                          placeholder="One value per line"></textarea>
+                                <div class="form-text">Each line becomes a separate registry entry</div>
+                                break;
+                            default:
+                                <input class="form-control" @bind="_stringValue" placeholder="Value" />
+                                break;
+                        }
+                    }
+
+                    <div class="d-flex gap-2 mt-3">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CancelAddPolicy">Cancel</button>
+                        <button type="button" class="btn btn-sm btn-primary" @onclick="ConfirmAddPolicy"
+                                disabled="@(_selectedEntry is null)">Add to Version</button>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    @if (_warnings.Any())
+    {
+        <div class="alert alert-warning py-2">
+            <small>Warnings: @string.Join("; ", _warnings)</small>
+        </div>
+    }
+    </ChildContent>
+
+    <Footer>
+        <button type="button" class="btn btn-outline-secondary" @onclick="Cancel">Cancel</button>
+        <button type="button" class="btn btn-primary" @onclick="Submit"
+                disabled="@string.IsNullOrWhiteSpace(_version)">Create Version</button>
+    </Footer>
+</Modal>
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public EventCallback<bool> VisibleChanged { get; set; }
+    [Parameter] public EventCallback OnCompleted { get; set; }
+    [Parameter] public PolicySetDto? PolicySet { get; set; }
+
+    private string _version = "";
+    private List<string> _warnings = [];
+    private Dictionary<string, JsonElement> _currentSettings = new();
+
+    private List<PolicyCatalogEntryDto> _catalogEntries = [];
+    private List<PolicyCatalogEntryDto> _catalogResults = [];
+    private string _catalogSearch = "";
+    private bool _loadingCatalog;
+    private bool _catalogLoaded;
+    private string _catalogVersion = "";
+
+    private bool _addingPolicy;
+    private PolicyCatalogEntryDto? _selectedEntry;
+    private bool _boolValue = true;
+    private int _intValue;
+    private string _stringValue = "";
+    private Guid _loadedFor;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Visible && PolicySet is not null && _loadedFor != PolicySet.Id)
+        {
+            _loadedFor = PolicySet.Id;
+            _currentSettings = new();
+            _version = "";
+            if (PolicySet.Versions.Any())
+            {
+                var latest = PolicySet.Versions.OrderByDescending(v => v.CreatedAt).First();
+                _currentSettings = ParseSettings(latest.SettingsJson);
+                var parts = latest.Version.Split('.');
+                if (parts.Length == 3 && int.TryParse(parts[2], out var patch))
+                    _version = $"{parts[0]}.{parts[1]}.{patch + 1}";
+            }
+
+            if (!_catalogLoaded)
+            {
+                _loadingCatalog = true;
+                try { _catalogEntries = await Api.GetCatalogAsync(); _catalogLoaded = true; }
+                catch { }
+                finally { _loadingCatalog = false; }
+            }
+            _catalogVersion = _catalogEntries.FirstOrDefault()?.TemplateVersion ?? "";
+        }
+    }
+
+    private static Dictionary<string, JsonElement> ParseSettings(string json)
+    {
+        try { return JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json) ?? new(); }
+        catch { return new(); }
+    }
+
+    private void ShowAddPolicy()
+    {
+        _addingPolicy = true;
+        _selectedEntry = null;
+        _catalogSearch = "";
+        _catalogResults = _catalogEntries.Take(10).ToList();
+        _boolValue = true; _intValue = 0; _stringValue = "";
+    }
+
+    private void OnCatalogSearch(ChangeEventArgs e)
+    {
+        _catalogSearch = e.Value?.ToString() ?? "";
+        _selectedEntry = null;
+        if (string.IsNullOrWhiteSpace(_catalogSearch))
+        {
+            _catalogResults = _catalogEntries.Take(10).ToList();
+            return;
+        }
+        _catalogResults = _catalogEntries
+            .Where(x => x.DisplayName.Contains(_catalogSearch, StringComparison.OrdinalIgnoreCase) ||
+                        x.Name.Contains(_catalogSearch, StringComparison.OrdinalIgnoreCase))
+            .Take(20).ToList();
+    }
+
+    private void SelectEntry(PolicyCatalogEntryDto e)
+    {
+        _selectedEntry = e;
+        _catalogSearch = e.DisplayName;
+        _catalogResults = [];
+        _stringValue = "";
+        if (e.DataType == "Enum")
+        {
+            var opts = ParseEnumOptions(e.EnumOptions ?? "[]");
+            if (opts.Count > 0) _stringValue = opts[0].Value;
+        }
+    }
+
+    private void CancelAddPolicy() => _addingPolicy = false;
+
+    private void RemovePolicy(string name) => _currentSettings.Remove(name);
+
+    private void ConfirmAddPolicy()
+    {
+        if (_selectedEntry is null) return;
+        object rawValue = _selectedEntry.DataType switch
+        {
+            "Boolean" => _boolValue ? 1 : 0,
+            "Integer" => _intValue,
+            "List" or "MultiString" => _stringValue.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+            _ => _stringValue
+        };
+        _currentSettings[_selectedEntry.Name] = JsonSerializer.SerializeToElement(rawValue);
+        _addingPolicy = false;
+        _selectedEntry = null;
+    }
+
+    private static string FormatValue(JsonElement element) => JsonSerializer.Serialize(element);
+
+    private async Task Submit()
+    {
+        try
+        {
+            var settingsJson = _currentSettings.Any()
+                ? JsonSerializer.Serialize(_currentSettings, new JsonSerializerOptions { WriteIndented = true })
+                : "{}";
+            var result = await Api.CreateVersionAsync(PolicySet!.Id, _version, settingsJson);
+            _warnings = result.Validation?.Warnings ?? [];
+            Toast.Success($"Version {_version} created (Status: Draft). Promote to activate.");
+            await Close();
+            await OnCompleted.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Error: {ex.Message}");
+        }
+    }
+
+    private async Task Cancel() => await Close();
+
+    private async Task Close()
+    {
+        _loadedFor = Guid.Empty;
+        _addingPolicy = false;
+        if (VisibleChanged.HasDelegate) await VisibleChanged.InvokeAsync(false);
+    }
+
+    private static List<(string Value, string Display)> ParseEnumOptions(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            return doc.RootElement.EnumerateArray()
+                .Select(e => (
+                    Value: e.GetProperty("value").ToString(),
+                    Display: e.TryGetProperty("displayName", out var d) ? d.GetString() ?? "" : ""))
+                .ToList();
+        }
+        catch { return []; }
+    }
+}

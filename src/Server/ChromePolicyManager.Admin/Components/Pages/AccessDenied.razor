@@ -1,0 +1,99 @@
+@page "/access-denied"
+@layout Layout.MainLayout
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.Security.Claims
+@inject NavigationManager Nav
+@inject AuthenticationStateProvider AuthStateProvider
+
+@* Public courtesy page reached two ways:
+   - Cookie LoginPath       → user is NOT authenticated (show the login link).
+   - Cookie AccessDeniedPath → user IS authenticated but lacks an app role. *@
+@attribute [AllowAnonymous]
+
+<PageTitle>Accesso al portale</PageTitle>
+
+<div class="container py-5" style="max-width: 720px;">
+    <AuthorizeView>
+        <NotAuthorized>
+            <h1 class="h3 mb-3"><i class="bi bi-shield-lock me-2"></i>Accesso richiesto</h1>
+            <p class="text-muted">
+                Per utilizzare <em>Chrome Policy Manager — Admin</em> devi autenticarti
+                con il tuo account aziendale (Microsoft Entra ID).
+            </p>
+            <p>
+                Verrai reindirizzato alla pagina di accesso Microsoft. Dopo il login
+                tornerai automaticamente alla pagina richiesta.
+            </p>
+            <a class="btn btn-primary" href="@SignInHref">
+                <i class="bi bi-box-arrow-in-right me-1"></i> Accedi
+            </a>
+        </NotAuthorized>
+        <Authorized>
+            <h1 class="h3 text-danger mb-3"><i class="bi bi-x-octagon me-2"></i>Accesso negato</h1>
+            <p>
+                Sei autenticato come <strong>@context.User.Identity?.Name</strong>, ma il
+                tuo account non possiede uno dei ruoli applicativi richiesti per accedere
+                al portale.
+            </p>
+            <ul>
+                <li><code>PolicyManager.Administrator</code> — lettura e scrittura complete</li>
+                <li><code>PolicyManager.Operator</code> — lettura + avvio remediation sui device</li>
+                <li><code>PolicyManager.Reader</code> — sola lettura</li>
+            </ul>
+            <p class="text-muted">
+                Contatta l'amministratore della app registration <em>cpm-dev-admin</em> per
+                richiedere l'assegnazione del ruolo. Una volta assegnato, esci e accedi di
+                nuovo per aggiornare il token.
+            </p>
+            <div class="d-flex gap-2">
+                <a class="btn btn-outline-primary" href="@SignInHref">Cambia account</a>
+                <a class="btn btn-outline-secondary" href="MicrosoftIdentity/Account/SignOut">Esci</a>
+            </div>
+
+            <details class="mt-4">
+                <summary class="text-muted" style="cursor:pointer;">Dettagli del token</summary>
+                <div class="mt-2 small">
+                    <p class="mb-1">
+                        Ruoli presenti nel token:
+                        @if (_roles.Length == 0)
+                        {
+                            <strong class="text-danger">nessuno</strong>
+                            <span> — il token non contiene il claim <code>roles</code>. Esci e
+                            accedi di nuovo dopo l'assegnazione del ruolo.</span>
+                        }
+                        else
+                        {
+                            <strong>@string.Join(", ", _roles)</strong>
+                        }
+                    </p>
+                </div>
+            </details>
+        </Authorized>
+    </AuthorizeView>
+</div>
+
+@code {
+    private string[] _roles = Array.Empty<string>();
+
+    private string SignInHref
+    {
+        get
+        {
+            var uri = new Uri(Nav.Uri);
+            var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query);
+            var returnUrl = query.TryGetValue("ReturnUrl", out var r) ? r.ToString() : "/";
+            if (string.IsNullOrWhiteSpace(returnUrl) || !returnUrl.StartsWith('/')) returnUrl = "/";
+            return "MicrosoftIdentity/Account/SignIn?redirectUri=" + Uri.EscapeDataString(returnUrl);
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthStateProvider.GetAuthenticationStateAsync();
+        _roles = auth.User.Claims
+            .Where(c => c.Type == "roles" || c.Type == ClaimTypes.Role)
+            .Select(c => c.Value)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+}

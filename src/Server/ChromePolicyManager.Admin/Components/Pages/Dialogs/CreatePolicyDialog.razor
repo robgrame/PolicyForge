@@ -1,0 +1,64 @@
+@inject PolicyApiClient Api
+@inject ToastService Toast
+
+<Modal Visible="Visible" VisibleChanged="VisibleChanged" Title="Create Policy Set"
+       Icon="bi-folder-plus" Size="md" OnClose="Cancel">
+    <ChildContent>
+    <div class="mb-3">
+        <label class="form-label">Name <span class="text-danger">*</span></label>
+        <input class="form-control" @bind="_name" @bind:event="oninput"
+               placeholder="e.g. Chrome Security Baseline" />
+    </div>
+    <div class="mb-1">
+        <label class="form-label">Description</label>
+        <textarea class="form-control" rows="3" @bind="_description"
+                  placeholder="Description of this policy set"></textarea>
+    </div>
+    </ChildContent>
+    <Footer>
+        <button type="button" class="btn btn-outline-secondary" @onclick="Cancel">Cancel</button>
+        <button type="button" class="btn btn-primary" @onclick="Submit"
+                disabled="@string.IsNullOrWhiteSpace(_name)">Create</button>
+    </Footer>
+</Modal>
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public EventCallback<bool> VisibleChanged { get; set; }
+    [Parameter] public EventCallback OnCompleted { get; set; }
+
+    private string _name = "";
+    private string _description = "";
+
+    protected override void OnParametersSet()
+    {
+        if (Visible && _name == "" && _description == "") { /* fresh */ }
+    }
+
+    private async Task Submit()
+    {
+        try
+        {
+            await Api.CreatePolicySetAsync(_name, _description);
+            Toast.Success($"Policy Set '{_name}' created!");
+            _name = ""; _description = "";
+            await Close();
+            await OnCompleted.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Error: {ex.Message}");
+        }
+    }
+
+    private async Task Cancel()
+    {
+        _name = ""; _description = "";
+        await Close();
+    }
+
+    private async Task Close()
+    {
+        if (VisibleChanged.HasDelegate) await VisibleChanged.InvokeAsync(false);
+    }
+}
