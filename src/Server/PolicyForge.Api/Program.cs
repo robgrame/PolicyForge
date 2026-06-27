@@ -114,6 +114,7 @@ builder.Services.AddSingleton<PolicyForge.Api.Providers.IConfigurationProvider, 
 builder.Services.AddSingleton<PolicyForge.Api.Providers.IConfigurationProvider, PolicyForge.Api.Providers.LocalGroupMembershipProvider>();
 builder.Services.AddSingleton<PolicyForge.Api.Providers.IConfigurationProvider, PolicyForge.Api.Providers.EnvironmentVariableProvider>();
 builder.Services.AddSingleton<PolicyForge.Api.Providers.ConfigurationProviderRegistry>();
+builder.Services.AddSingleton<PolicyForge.Api.Providers.ConfigurationGuardrails>();
 builder.Services.AddSingleton<PolicyForge.Api.Providers.ConfigurationCompiler>();
 builder.Services.AddScoped<ConfigurationResolveService>();
 builder.Services.AddHttpClient(); // For ADMX download from Google

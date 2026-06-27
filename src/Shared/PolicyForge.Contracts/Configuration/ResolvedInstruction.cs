@@ -38,4 +38,7 @@ public sealed record ResolvedConfiguration
 
     /// <summary>SHA-256 (lowercase hex) of the canonical serialized instruction set.</summary>
     public string Hash { get; init; } = string.Empty;
+
+    /// <summary>Non-blocking advisories (e.g. two items converging on the same target).</summary>
+    public IReadOnlyList<string> Warnings { get; init; } = Array.Empty<string>();
 }
