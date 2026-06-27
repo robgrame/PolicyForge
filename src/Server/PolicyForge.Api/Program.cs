@@ -108,6 +108,11 @@ builder.Services.AddSingleton<AdmxParserService>();
 // compiles authored items into client-ready ResolvedInstructions.
 builder.Services.AddSingleton<PolicyForge.Api.Providers.IConfigurationProvider, PolicyForge.Api.Providers.RegistryValueProvider>();
 builder.Services.AddSingleton<PolicyForge.Api.Providers.IConfigurationProvider, PolicyForge.Api.Providers.AdmxPolicyProvider>();
+builder.Services.AddSingleton<PolicyForge.Api.Providers.IConfigurationProvider, PolicyForge.Api.Providers.WindowsServiceProvider>();
+builder.Services.AddSingleton<PolicyForge.Api.Providers.IConfigurationProvider, PolicyForge.Api.Providers.ScheduledTaskProvider>();
+builder.Services.AddSingleton<PolicyForge.Api.Providers.IConfigurationProvider, PolicyForge.Api.Providers.FileResourceProvider>();
+builder.Services.AddSingleton<PolicyForge.Api.Providers.IConfigurationProvider, PolicyForge.Api.Providers.LocalGroupMembershipProvider>();
+builder.Services.AddSingleton<PolicyForge.Api.Providers.IConfigurationProvider, PolicyForge.Api.Providers.EnvironmentVariableProvider>();
 builder.Services.AddSingleton<PolicyForge.Api.Providers.ConfigurationProviderRegistry>();
 builder.Services.AddSingleton<PolicyForge.Api.Providers.ConfigurationCompiler>();
 builder.Services.AddHttpClient(); // For ADMX download from Google
@@ -265,6 +270,7 @@ app.MapMonitoringEndpoints();
 app.MapCatalogEndpoints();
 app.MapWebhookEndpoints();
 app.MapConfigEndpoints();
+app.MapConfigurationEndpoints();
 app.MapCommandEndpoints();
 app.MapEventGridEndpoints();
 

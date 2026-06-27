@@ -8,4 +8,7 @@
   <Folder Name="/src/Shared/">
     <Project Path="src/Shared/PolicyForge.Contracts/PolicyForge.Contracts.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/PolicyForge.Providers.Tests/PolicyForge.Providers.Tests.csproj" />
+  </Folder>
 </Solution>
