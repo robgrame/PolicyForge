@@ -19,6 +19,7 @@ public class AppDbContext : DbContext
     public DbSet<ConfigurationProfile> ConfigurationProfiles => Set<ConfigurationProfile>();
     public DbSet<ConfigurationProfileVersion> ConfigurationProfileVersions => Set<ConfigurationProfileVersion>();
     public DbSet<ConfigurationAssignment> ConfigurationAssignments => Set<ConfigurationAssignment>();
+    public DbSet<ConfigurationSnapshot> ConfigurationSnapshots => Set<ConfigurationSnapshot>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -40,6 +41,13 @@ public class AppDbContext : DbContext
             e.HasKey(x => x.Id);
             e.HasIndex(x => new { x.ProfileVersionId, x.EntraGroupId }).IsUnique();
             e.HasOne(x => x.ProfileVersion).WithMany().HasForeignKey(x => x.ProfileVersionId);
+        });
+
+        modelBuilder.Entity<ConfigurationSnapshot>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.DeviceId);
+            e.HasIndex(x => x.ReceivedAt);
         });
 
         modelBuilder.Entity<PolicySet>(e =>

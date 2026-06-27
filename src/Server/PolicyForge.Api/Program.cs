@@ -271,6 +271,20 @@ var app = builder.Build();
             IF OBJECT_ID('ConfigurationAssignments', 'U') IS NOT NULL
                AND NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_ConfigurationAssignments_ProfileVersionId_EntraGroupId' AND object_id = OBJECT_ID('ConfigurationAssignments'))
                 CREATE UNIQUE INDEX IX_ConfigurationAssignments_ProfileVersionId_EntraGroupId ON ConfigurationAssignments(ProfileVersionId, EntraGroupId);
+
+            IF OBJECT_ID('ConfigurationSnapshots', 'U') IS NULL
+            CREATE TABLE ConfigurationSnapshots (
+                Id UNIQUEIDENTIFIER NOT NULL PRIMARY KEY,
+                DeviceId NVARCHAR(128) NOT NULL,
+                ForwardHash NVARCHAR(128) NULL,
+                CapturedAt DATETIME2 NOT NULL,
+                ItemCount INT NOT NULL DEFAULT 0,
+                InstructionsJson NVARCHAR(MAX) NOT NULL,
+                ReceivedAt DATETIME2 NOT NULL
+            );
+            IF OBJECT_ID('ConfigurationSnapshots', 'U') IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_ConfigurationSnapshots_DeviceId' AND object_id = OBJECT_ID('ConfigurationSnapshots'))
+                CREATE INDEX IX_ConfigurationSnapshots_DeviceId ON ConfigurationSnapshots(DeviceId);
         ");
     }
     catch { /* Column may already exist or DB not ready */ }
