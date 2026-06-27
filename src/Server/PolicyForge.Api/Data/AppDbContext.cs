@@ -77,9 +77,10 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<PolicyCatalogEntry>(e =>
         {
             e.HasKey(x => x.Id);
-            e.HasIndex(x => new { x.Name, x.IsRecommended }).IsUnique();
+            e.HasIndex(x => new { x.Namespace, x.Name, x.IsRecommended }).IsUnique();
             e.HasIndex(x => x.Category);
             e.HasIndex(x => x.DataType);
+            e.HasIndex(x => x.Namespace);
         });
 
         modelBuilder.Entity<DeviceLog>(e =>

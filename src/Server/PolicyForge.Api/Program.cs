@@ -194,6 +194,19 @@ var app = builder.Build();
             IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('PolicySetVersions') AND name = 'AdmxVersion')
                 ALTER TABLE PolicySetVersions ADD AdmxVersion NVARCHAR(50) NULL;
 
+            IF OBJECT_ID('PolicyCatalog', 'U') IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('PolicyCatalog') AND name = 'Namespace')
+                ALTER TABLE PolicyCatalog ADD Namespace NVARCHAR(128) NOT NULL DEFAULT '';
+            IF OBJECT_ID('PolicyCatalog', 'U') IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('PolicyCatalog') AND name = 'ProductName')
+                ALTER TABLE PolicyCatalog ADD ProductName NVARCHAR(256) NOT NULL DEFAULT '';
+            IF OBJECT_ID('PolicyCatalog', 'U') IS NOT NULL
+               AND EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_PolicyCatalog_Name_IsRecommended' AND object_id = OBJECT_ID('PolicyCatalog'))
+                DROP INDEX IX_PolicyCatalog_Name_IsRecommended ON PolicyCatalog;
+            IF OBJECT_ID('PolicyCatalog', 'U') IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_PolicyCatalog_Namespace_Name_IsRecommended' AND object_id = OBJECT_ID('PolicyCatalog'))
+                CREATE UNIQUE INDEX IX_PolicyCatalog_Namespace_Name_IsRecommended ON PolicyCatalog(Namespace, Name, IsRecommended);
+
             IF OBJECT_ID('PrivilegedCommands', 'U') IS NULL
             CREATE TABLE PrivilegedCommands (
                 Id UNIQUEIDENTIFIER NOT NULL PRIMARY KEY,

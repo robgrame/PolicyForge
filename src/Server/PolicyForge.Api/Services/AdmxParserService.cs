@@ -5,8 +5,10 @@ using PolicyForge.Api.Models;
 namespace PolicyForge.Api.Services;
 
 /// <summary>
-/// Parses Chrome ADMX + ADML files to produce PolicyCatalogEntry records.
-/// Handles: boolean, enum, decimal, text, list policy types.
+/// Parses ADMX + ADML files into PolicyCatalogEntry records. Namespace-aware (handles the standard
+/// PolicyDefinitions XML namespace) and product-aware (captures each ADMX's target prefix), so it
+/// can ingest arbitrary vendor ADMX, not just Chrome. Handles boolean, enum, decimal, text, list
+/// and multiText policy element types.
 /// </summary>
 public class AdmxParserService
 {
@@ -14,33 +16,44 @@ public class AdmxParserService
         List<PolicyCatalogEntry> Entries,
         string TemplateVersion,
         int TotalParsed,
-        List<string> Warnings);
+        List<string> Warnings,
+        string Namespace = "",
+        string ProductName = "");
 
     /// <summary>
-    /// Parse Chrome ADMX and ADML content streams into catalog entries.
+    /// Parse ADMX and ADML content streams into catalog entries. The <paramref name="productName"/>
+    /// is an optional friendly label; when omitted the ADML <c>displayName</c> resource is used.
     /// </summary>
-    public AdmxParseResult Parse(Stream admxStream, Stream admlStream, string templateVersion = "unknown")
+    public AdmxParseResult Parse(Stream admxStream, Stream admlStream, string templateVersion = "unknown", string? productName = null)
     {
         var admx = XDocument.Load(admxStream);
         var adml = XDocument.Load(admlStream);
 
-        var strings = ParseStringTable(adml);
-        var categories = ParseCategories(admx);
+        // Standard ADMX/ADML files declare a default XML namespace; resolve it from the root so
+        // element lookups work regardless of vendor. Falls back to no-namespace when absent.
+        var ns = admx.Root?.Name.Namespace ?? XNamespace.None;
+        var admlNs = adml.Root?.Name.Namespace ?? XNamespace.None;
+
+        var strings = ParseStringTable(adml, admlNs);
+        var categories = ParseCategories(admx, ns);
+        var (prefix, _) = ParseTargetNamespace(admx, ns);
+        var product = ResolveProductName(productName, prefix, adml, admlNs, strings);
+
         var entries = new List<PolicyCatalogEntry>();
         var warnings = new List<string>();
 
-        var policiesElement = admx.Root?.Element("policies");
+        var policiesElement = admx.Root?.Element(ns + "policies");
         if (policiesElement is null)
         {
             warnings.Add("No <policies> element found in ADMX");
-            return new AdmxParseResult(entries, templateVersion, 0, warnings);
+            return new AdmxParseResult(entries, templateVersion, 0, warnings, prefix, product);
         }
 
-        foreach (var policy in policiesElement.Elements("policy"))
+        foreach (var policy in policiesElement.Elements(ns + "policy"))
         {
             try
             {
-                var entry = ParsePolicy(policy, strings, categories, templateVersion);
+                var entry = ParsePolicy(policy, ns, strings, categories, templateVersion, prefix, product);
                 if (entry is not null)
                     entries.Add(entry);
             }
@@ -51,14 +64,17 @@ public class AdmxParserService
             }
         }
 
-        return new AdmxParseResult(entries, templateVersion, entries.Count, warnings);
+        return new AdmxParseResult(entries, templateVersion, entries.Count, warnings, prefix, product);
     }
 
     private PolicyCatalogEntry? ParsePolicy(
         XElement policy,
+        XNamespace ns,
         Dictionary<string, string> strings,
         Dictionary<string, string> categories,
-        string templateVersion)
+        string templateVersion,
+        string @namespace,
+        string productName)
     {
         var name = policy.Attribute("name")?.Value;
         if (string.IsNullOrEmpty(name)) return null;
@@ -66,8 +82,8 @@ public class AdmxParserService
         var regKey = policy.Attribute("key")?.Value ?? "";
         var valueName = policy.Attribute("valueName")?.Value ?? "";
         var policyClass = policy.Attribute("class")?.Value ?? "Both";
-        var categoryRef = policy.Element("parentCategory")?.Attribute("ref")?.Value ?? "";
-        var supportedOnRef = policy.Element("supportedOn")?.Attribute("ref")?.Value ?? "";
+        var categoryRef = policy.Element(ns + "parentCategory")?.Attribute("ref")?.Value ?? "";
+        var supportedOnRef = policy.Element(ns + "supportedOn")?.Attribute("ref")?.Value ?? "";
 
         // Determine if this is a "Recommended" variant
         bool isRecommended = categoryRef.EndsWith("_recommended") ||
@@ -86,7 +102,7 @@ public class AdmxParserService
                           ?? strings.GetValueOrDefault($"{name}_Explain", "");
 
         // Determine data type from elements
-        var (dataType, enumOptions) = DetermineDataType(policy, strings);
+        var (dataType, enumOptions) = DetermineDataType(policy, ns, strings);
 
         // For recommended policies, use the base name without suffix
         var baseName = isRecommended && name.EndsWith("_recommended")
@@ -95,6 +111,8 @@ public class AdmxParserService
 
         return new PolicyCatalogEntry
         {
+            Namespace = @namespace,
+            ProductName = productName,
             Name = baseName,
             DisplayName = displayName,
             Description = description,
@@ -111,9 +129,9 @@ public class AdmxParserService
         };
     }
 
-    private (string DataType, string? EnumOptions) DetermineDataType(XElement policy, Dictionary<string, string> strings)
+    private (string DataType, string? EnumOptions) DetermineDataType(XElement policy, XNamespace ns, Dictionary<string, string> strings)
     {
-        var elements = policy.Element("elements");
+        var elements = policy.Element(ns + "elements");
 
         if (elements is null)
         {
@@ -126,7 +144,7 @@ public class AdmxParserService
 
         return firstChild.Name.LocalName switch
         {
-            "enum" => ("Enum", ParseEnumOptions(firstChild, strings)),
+            "enum" => ("Enum", ParseEnumOptions(firstChild, ns, strings)),
             "decimal" => ("Integer", null),
             "text" => ("String", null),
             "list" => ("List", null),
@@ -136,14 +154,14 @@ public class AdmxParserService
         };
     }
 
-    private string? ParseEnumOptions(XElement enumElement, Dictionary<string, string> strings)
+    private string? ParseEnumOptions(XElement enumElement, XNamespace ns, Dictionary<string, string> strings)
     {
-        var items = enumElement.Elements("item").Select(item =>
+        var items = enumElement.Elements(ns + "item").Select(item =>
         {
             var displayNameRef = item.Attribute("displayName")?.Value;
             var displayName = ResolveStringRef(displayNameRef, strings) ?? displayNameRef ?? "";
-            var valueElement = item.Element("value")?.Element("decimal");
-            var stringValue = item.Element("value")?.Element("string");
+            var valueElement = item.Element(ns + "value")?.Element(ns + "decimal");
+            var stringValue = item.Element(ns + "value")?.Element(ns + "string");
 
             object value = valueElement is not null
                 ? int.Parse(valueElement.Attribute("value")?.Value ?? "0")
@@ -169,16 +187,40 @@ public class AdmxParserService
         return reference;
     }
 
-    private Dictionary<string, string> ParseStringTable(XDocument adml)
+    /// <summary>Reads the ADMX <c>policyNamespaces/target</c> prefix and namespace URI.</summary>
+    private (string Prefix, string NamespaceUri) ParseTargetNamespace(XDocument admx, XNamespace ns)
+    {
+        var target = admx.Root?.Element(ns + "policyNamespaces")?.Element(ns + "target");
+        var prefix = target?.Attribute("prefix")?.Value ?? "";
+        var uri = target?.Attribute("namespace")?.Value ?? "";
+        return (prefix, uri);
+    }
+
+    /// <summary>Determines a friendly product label: explicit override, ADML displayName, or prefix.</summary>
+    private string ResolveProductName(string? productName, string prefix, XDocument adml, XNamespace admlNs, Dictionary<string, string> strings)
+    {
+        if (!string.IsNullOrWhiteSpace(productName)) return productName.Trim();
+
+        var display = adml.Root?.Element(admlNs + "displayName")?.Value?.Trim();
+        if (!string.IsNullOrWhiteSpace(display) && !display.StartsWith("$("))
+            return display;
+
+        var resolved = ResolveStringRef(display, strings);
+        if (!string.IsNullOrWhiteSpace(resolved)) return resolved;
+
+        return string.IsNullOrWhiteSpace(prefix) ? "Unknown" : prefix;
+    }
+
+    private Dictionary<string, string> ParseStringTable(XDocument adml, XNamespace ns)
     {
         var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var stringTable = adml.Root?
-            .Element("resources")?
-            .Element("stringTable");
+            .Element(ns + "resources")?
+            .Element(ns + "stringTable");
 
         if (stringTable is null) return result;
 
-        foreach (var str in stringTable.Elements("string"))
+        foreach (var str in stringTable.Elements(ns + "string"))
         {
             var id = str.Attribute("id")?.Value;
             if (!string.IsNullOrEmpty(id))
@@ -188,13 +230,13 @@ public class AdmxParserService
         return result;
     }
 
-    private Dictionary<string, string> ParseCategories(XDocument admx)
+    private Dictionary<string, string> ParseCategories(XDocument admx, XNamespace ns)
     {
         var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var categoriesElement = admx.Root?.Element("categories");
+        var categoriesElement = admx.Root?.Element(ns + "categories");
         if (categoriesElement is null) return result;
 
-        foreach (var cat in categoriesElement.Elements("category"))
+        foreach (var cat in categoriesElement.Elements(ns + "category"))
         {
             var name = cat.Attribute("name")?.Value;
             var displayName = cat.Attribute("displayName")?.Value;

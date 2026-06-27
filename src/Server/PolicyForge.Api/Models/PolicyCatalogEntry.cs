@@ -1,12 +1,19 @@
 namespace PolicyForge.Api.Models;
 
 /// <summary>
-/// Represents a single Chrome policy definition parsed from ADMX/ADML templates.
-/// This is the "catalog" of all available Chrome policies that admins can pick from.
+/// Represents a single policy definition parsed from ADMX/ADML templates.
+/// This is the "catalog" of all available policies (any product) that admins can pick from.
 /// </summary>
 public class PolicyCatalogEntry
 {
     public Guid Id { get; set; } = Guid.NewGuid();
+
+    /// <summary>ADMX target prefix / namespace (e.g. "chrome", "microsoft_edge", "windows").
+    /// Used to disambiguate identically-named policies across different products.</summary>
+    public string Namespace { get; set; } = string.Empty;
+
+    /// <summary>Friendly product name this policy belongs to (e.g. "Google Chrome", "Microsoft Edge").</summary>
+    public string ProductName { get; set; } = string.Empty;
 
     /// <summary>Policy name as defined in ADMX (e.g. "SafeBrowsingProtectionLevel")</summary>
     public string Name { get; set; } = string.Empty;

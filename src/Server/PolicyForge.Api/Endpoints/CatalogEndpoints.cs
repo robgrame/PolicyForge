@@ -13,7 +13,7 @@ public static class CatalogEndpoints
         var group = app.MapGroup("/api/catalog").WithTags("Policy Catalog");
 
         // GET /api/catalog - Get all catalog entries (lightweight, no description/enum)
-        group.MapGet("/", async (AppDbContext db, string? category, string? dataType, string? search, bool? recommended) =>
+        group.MapGet("/", async (AppDbContext db, string? category, string? dataType, string? search, bool? recommended, string? @namespace) =>
         {
             var query = db.PolicyCatalog.AsQueryable();
 
@@ -22,6 +22,9 @@ public static class CatalogEndpoints
 
             if (!string.IsNullOrEmpty(dataType))
                 query = query.Where(e => e.DataType == dataType);
+
+            if (!string.IsNullOrEmpty(@namespace))
+                query = query.Where(e => e.Namespace == @namespace);
 
             if (recommended.HasValue)
                 query = query.Where(e => e.IsRecommended == recommended.Value);
@@ -33,10 +36,10 @@ public static class CatalogEndpoints
                     e.Description.Contains(search));
 
             var entries = await query
-                .OrderBy(e => e.Category).ThenBy(e => e.Name)
+                .OrderBy(e => e.ProductName).ThenBy(e => e.Category).ThenBy(e => e.Name)
                 .Select(e => new
                 {
-                    e.Id, e.Name, e.DisplayName, e.Category,
+                    e.Id, e.Namespace, e.ProductName, e.Name, e.DisplayName, e.Category,
                     e.DataType, e.IsRecommended, e.PolicyClass,
                     e.RegistryKey, e.RegistryValueName
                 })
@@ -193,6 +196,83 @@ public static class CatalogEndpoints
             return Results.Ok(importResult);
         }).WithName("ImportCatalogLocal");
 
+        // GET /api/catalog/products - distinct products (namespaces) currently in the catalog
+        group.MapGet("/products", async (AppDbContext db) =>
+        {
+            var products = await db.PolicyCatalog
+                .GroupBy(e => new { e.Namespace, e.ProductName })
+                .Select(g => new
+                {
+                    g.Key.Namespace,
+                    g.Key.ProductName,
+                    PolicyCount = g.Count(),
+                    TemplateVersion = g.Max(x => x.TemplateVersion)
+                })
+                .OrderBy(p => p.ProductName)
+                .ToListAsync();
+            return Results.Ok(products);
+        }).WithName("GetCatalogProducts");
+
+        // POST /api/catalog/import-admx - Generic import: accepts a zip containing ANY number of
+        // .admx files (any vendor) plus their matching .adml localization. Each ADMX is parsed and
+        // tagged with its own namespace, so multiple products coexist in one catalog.
+        group.MapPost("/import-admx", async (HttpRequest request, AppDbContext db, AdmxParserService parser) =>
+        {
+            if (!request.HasFormContentType)
+                return Results.BadRequest("Expected multipart/form-data with an ADMX zip file");
+
+            var form = await request.ReadFormAsync();
+            var file = form.Files.GetFile("admxZip") ?? form.Files.FirstOrDefault();
+            if (file is null || file.Length == 0)
+                return Results.BadRequest("No file uploaded. Upload a zip containing one or more *.admx + matching *.adml");
+
+            var versionLabel = form["version"].FirstOrDefault();
+            var productName = form["productName"].FirstOrDefault();
+            var preferredLang = form["language"].FirstOrDefault() ?? "en-US";
+            var diffMode = form["diffMode"].FirstOrDefault()?.Equals("true", StringComparison.OrdinalIgnoreCase) ?? false;
+
+            using var zipStream = file.OpenReadStream();
+            using var ms = new MemoryStream();
+            await zipStream.CopyToAsync(ms);
+            ms.Position = 0;
+            using var archive = new ZipArchive(ms, ZipArchiveMode.Read);
+
+            var effectiveVersion = ResolveVersion(versionLabel, ExtractVersionFromArchive(archive));
+            var pairs = FindAdmxPairs(archive, preferredLang);
+            if (pairs.Count == 0)
+                return Results.BadRequest("No .admx/.adml pairs found in the uploaded zip");
+
+            var perProduct = new List<object>();
+            var warnings = new List<string>();
+            foreach (var (admxEntry, admlEntry) in pairs)
+            {
+                using var admxStream = admxEntry.Open();
+                using var admlStream = admlEntry.Open();
+                AdmxParserService.AdmxParseResult result;
+                try
+                {
+                    result = parser.Parse(admxStream, admlStream, effectiveVersion, productName);
+                }
+                catch (Exception ex)
+                {
+                    warnings.Add($"{admxEntry.Name}: {ex.Message}");
+                    continue;
+                }
+                var importResult = await ApplyImport(db, result, diffMode);
+                perProduct.Add(new { File = admxEntry.Name, result.Namespace, result.ProductName, Detail = importResult });
+                warnings.AddRange(result.Warnings);
+            }
+
+            return Results.Ok(new
+            {
+                Message = $"Imported {pairs.Count} ADMX file(s)",
+                TemplateVersion = effectiveVersion,
+                Products = perProduct,
+                Warnings = warnings
+            });
+        }).WithName("ImportCatalogGeneric")
+        .DisableAntiforgery();
+
         // GET /api/catalog/latest-available - Compare the imported catalog version
         // against the latest stable Chrome version published by Google, so the UI
         // can surface an "update available" hint and offer a one-click re-import.
@@ -231,6 +311,39 @@ public static class CatalogEndpoints
                 Error = error
             });
         }).WithName("GetLatestAvailableVersion");
+    }
+
+    /// <summary>
+    /// Discovers all .admx files in the archive and pairs each with its matching .adml, preferring
+    /// the requested language folder (e.g. "en-US") and falling back to any available localization.
+    /// Skips __MACOSX noise. Works for arbitrary vendor ADMX, not just Chrome.
+    /// </summary>
+    private static List<(ZipArchiveEntry Admx, ZipArchiveEntry Adml)> FindAdmxPairs(ZipArchive archive, string preferredLang)
+    {
+        var pairs = new List<(ZipArchiveEntry, ZipArchiveEntry)>();
+        var admxFiles = archive.Entries.Where(e =>
+            e.Name.EndsWith(".admx", StringComparison.OrdinalIgnoreCase) &&
+            !e.FullName.Contains("__MACOSX")).ToList();
+
+        foreach (var admx in admxFiles)
+        {
+            var baseName = admx.Name[..^".admx".Length];
+            var admlCandidates = archive.Entries.Where(e =>
+                e.Name.Equals(baseName + ".adml", StringComparison.OrdinalIgnoreCase) &&
+                !e.FullName.Contains("__MACOSX")).ToList();
+
+            if (admlCandidates.Count == 0)
+                continue;
+
+            // Prefer the requested language folder, then en-US, then anything available.
+            var adml = admlCandidates.FirstOrDefault(e => e.FullName.Contains(preferredLang, StringComparison.OrdinalIgnoreCase))
+                       ?? admlCandidates.FirstOrDefault(e => e.FullName.Contains("en-US", StringComparison.OrdinalIgnoreCase))
+                       ?? admlCandidates[0];
+
+            pairs.Add((admx, adml));
+        }
+
+        return pairs;
     }
 
     /// <summary>
@@ -321,10 +434,13 @@ public static class CatalogEndpoints
 
         if (!diffMode)
         {
-            // Full replace mode — deduplicate by Name+IsRecommended before inserting
-            db.PolicyCatalog.RemoveRange(db.PolicyCatalog);
+            // Full replace mode — scoped to the namespace(s) present in this import so that
+            // importing one product (e.g. Edge) does NOT wipe another product's policies (e.g. Chrome).
+            var importedNamespaces = result.Entries.Select(e => e.Namespace).Distinct().ToList();
+            var existingInScope = db.PolicyCatalog.Where(e => importedNamespaces.Contains(e.Namespace));
+            db.PolicyCatalog.RemoveRange(existingInScope);
             var deduped = result.Entries
-                .GroupBy(e => $"{e.Name}|{e.IsRecommended}", StringComparer.OrdinalIgnoreCase)
+                .GroupBy(e => $"{e.Namespace}|{e.Name}|{e.IsRecommended}", StringComparer.OrdinalIgnoreCase)
                 .Select(g => g.First())
                 .ToList();
             await db.PolicyCatalog.AddRangeAsync(deduped);
@@ -333,32 +449,36 @@ public static class CatalogEndpoints
         }
         else
         {
-            // Differential mode — only add/update/remove differences
-            // Key includes scope (IsRecommended) since same policy name can exist in both mandatory+recommended
-            var existingEntries = await db.PolicyCatalog.ToListAsync();
+            // Differential mode — only add/update/remove differences, scoped per namespace.
+            // Key includes namespace + scope (IsRecommended) since same policy name can exist in
+            // multiple products and in both mandatory+recommended variants.
+            var importedNamespaces = result.Entries.Select(e => e.Namespace).Distinct().ToList();
+            var existingEntries = await db.PolicyCatalog
+                .Where(e => importedNamespaces.Contains(e.Namespace))
+                .ToListAsync();
             var existingByKey = new Dictionary<string, PolicyCatalogEntry>(StringComparer.OrdinalIgnoreCase);
             foreach (var e in existingEntries)
             {
-                var key = $"{e.Name}|{e.IsRecommended}";
+                var key = $"{e.Namespace}|{e.Name}|{e.IsRecommended}";
                 existingByKey.TryAdd(key, e); // keep first if duplicates exist in DB
             }
             var newByKey = new Dictionary<string, PolicyCatalogEntry>(StringComparer.OrdinalIgnoreCase);
             foreach (var e in result.Entries)
             {
-                var key = $"{e.Name}|{e.IsRecommended}";
+                var key = $"{e.Namespace}|{e.Name}|{e.IsRecommended}";
                 newByKey.TryAdd(key, e); // skip true duplicates
             }
 
             // Find new policies (in new ADMX but not in existing catalog)
             var toAdd = result.Entries
-                .Where(e => !existingByKey.ContainsKey($"{e.Name}|{e.IsRecommended}"))
-                .GroupBy(e => $"{e.Name}|{e.IsRecommended}")
+                .Where(e => !existingByKey.ContainsKey($"{e.Namespace}|{e.Name}|{e.IsRecommended}"))
+                .GroupBy(e => $"{e.Namespace}|{e.Name}|{e.IsRecommended}")
                 .Select(g => g.First())
                 .ToList();
 
             // Find removed policies (in existing catalog but not in new ADMX)
             var toRemove = existingEntries
-                .Where(e => !newByKey.ContainsKey($"{e.Name}|{e.IsRecommended}"))
+                .Where(e => !newByKey.ContainsKey($"{e.Namespace}|{e.Name}|{e.IsRecommended}"))
                 .ToList();
 
             // Find updated policies (exist in both but have different content)
