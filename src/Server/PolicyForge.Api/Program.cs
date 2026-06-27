@@ -316,6 +316,7 @@ app.MapCatalogEndpoints();
 app.MapWebhookEndpoints();
 app.MapConfigEndpoints();
 app.MapConfigurationEndpoints();
+app.MapConfigurationProfileEndpoints();
 app.MapCommandEndpoints();
 app.MapEventGridEndpoints();
 
