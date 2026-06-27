@@ -291,6 +291,15 @@ else
                     </div>
                 </div>
 
+                @if (_compileWarnings.Count > 0)
+                {
+                    <div class="alert alert-warning mt-3 mb-0">
+                        <strong><i class="bi bi-exclamation-triangle me-1"></i>Conflitti rilevati</strong>
+                        <ul class="mb-0 mt-1">
+                            @foreach (var w in _compileWarnings) { <li>@w</li> }
+                        </ul>
+                    </div>
+                }
                 @if (_compileResult is not null)
                 {
                     <div class="mt-3">
@@ -353,6 +362,7 @@ else
     private readonly List<EditItem> _items = [];
     private string _admxVersion = "";
     private string? _compileResult;
+    private readonly List<string> _compileWarnings = [];
     private bool _saving;
     private Guid? _expandedVersion;
 
@@ -412,7 +422,7 @@ else
 
     private void StartAuthoring()
     {
-        _items.Clear(); _compileResult = null; _admxVersion = ""; _authoring = true; _tab = "reg";
+        _items.Clear(); _compileResult = null; _compileWarnings.Clear(); _admxVersion = ""; _authoring = true; _tab = "reg";
     }
 
     private void AddRegistry()
@@ -470,10 +480,18 @@ else
 
     private async Task CompilePreview()
     {
+        _compileWarnings.Clear();
         try
         {
-            _compileResult = await Api.CompileConfigAsync(BuildPayload());
-            _compileResult = PrettyJson(_compileResult);
+            var raw = await Api.CompileConfigAsync(BuildPayload());
+            _compileResult = PrettyJson(raw);
+            try
+            {
+                var node = JsonNode.Parse(raw);
+                if (node?["warnings"] is JsonArray warns)
+                    foreach (var w in warns) { var s = w?.GetValue<string>(); if (!string.IsNullOrEmpty(s)) _compileWarnings.Add(s); }
+            }
+            catch { }
         }
         catch (Exception ex) { _compileResult = ex.Message; Toast.Error("Compilazione fallita (vedi anteprima)"); }
     }
