@@ -115,6 +115,7 @@ builder.Services.AddSingleton<PolicyForge.Api.Providers.IConfigurationProvider, 
 builder.Services.AddSingleton<PolicyForge.Api.Providers.IConfigurationProvider, PolicyForge.Api.Providers.EnvironmentVariableProvider>();
 builder.Services.AddSingleton<PolicyForge.Api.Providers.ConfigurationProviderRegistry>();
 builder.Services.AddSingleton<PolicyForge.Api.Providers.ConfigurationCompiler>();
+builder.Services.AddScoped<ConfigurationResolveService>();
 builder.Services.AddHttpClient(); // For ADMX download from Google
 
 // Azure App Configuration client for ClientCert:* trust settings (Managed Identity).
@@ -253,6 +254,23 @@ var app = builder.Build();
             IF OBJECT_ID('ConfigurationProfileVersions', 'U') IS NOT NULL
                AND NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_ConfigurationProfileVersions_ProfileId_Version' AND object_id = OBJECT_ID('ConfigurationProfileVersions'))
                 CREATE UNIQUE INDEX IX_ConfigurationProfileVersions_ProfileId_Version ON ConfigurationProfileVersions(ProfileId, Version);
+
+            IF OBJECT_ID('ConfigurationAssignments', 'U') IS NULL
+            CREATE TABLE ConfigurationAssignments (
+                Id UNIQUEIDENTIFIER NOT NULL PRIMARY KEY,
+                ProfileVersionId UNIQUEIDENTIFIER NOT NULL,
+                EntraGroupId NVARCHAR(128) NOT NULL,
+                GroupName NVARCHAR(256) NULL,
+                Priority INT NOT NULL DEFAULT 100,
+                Enabled BIT NOT NULL DEFAULT 1,
+                CreatedAt DATETIME2 NOT NULL,
+                CreatedBy NVARCHAR(256) NULL,
+                CONSTRAINT FK_ConfigurationAssignments_Versions FOREIGN KEY (ProfileVersionId)
+                    REFERENCES ConfigurationProfileVersions(Id) ON DELETE CASCADE
+            );
+            IF OBJECT_ID('ConfigurationAssignments', 'U') IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_ConfigurationAssignments_ProfileVersionId_EntraGroupId' AND object_id = OBJECT_ID('ConfigurationAssignments'))
+                CREATE UNIQUE INDEX IX_ConfigurationAssignments_ProfileVersionId_EntraGroupId ON ConfigurationAssignments(ProfileVersionId, EntraGroupId);
         ");
     }
     catch { /* Column may already exist or DB not ready */ }

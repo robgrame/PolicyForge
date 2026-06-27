@@ -18,6 +18,7 @@ public class AppDbContext : DbContext
     public DbSet<PrivilegedCommand> PrivilegedCommands => Set<PrivilegedCommand>();
     public DbSet<ConfigurationProfile> ConfigurationProfiles => Set<ConfigurationProfile>();
     public DbSet<ConfigurationProfileVersion> ConfigurationProfileVersions => Set<ConfigurationProfileVersion>();
+    public DbSet<ConfigurationAssignment> ConfigurationAssignments => Set<ConfigurationAssignment>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -32,6 +33,13 @@ public class AppDbContext : DbContext
         {
             e.HasKey(x => x.Id);
             e.HasIndex(x => new { x.ProfileId, x.Version }).IsUnique();
+        });
+
+        modelBuilder.Entity<ConfigurationAssignment>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.ProfileVersionId, x.EntraGroupId }).IsUnique();
+            e.HasOne(x => x.ProfileVersion).WithMany().HasForeignKey(x => x.ProfileVersionId);
         });
 
         modelBuilder.Entity<PolicySet>(e =>

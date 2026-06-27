@@ -1,4 +1,5 @@
 using PolicyForge.Api.Providers;
+using PolicyForge.Api.Services;
 using PolicyForge.Contracts.Configuration;
 
 namespace PolicyForge.Api.Endpoints;
@@ -28,6 +29,16 @@ public static class ConfigurationEndpoints
             return Results.Ok(resolved);
         })
         .WithName("CompileConfiguration");
+
+        // GET /api/configuration/resolve/{deviceId} - the device-facing endpoint the client
+        // dispatcher fetches: resolves group memberships + active assignments server-side and
+        // returns the flat, de-duplicated instruction set the device must converge to.
+        group.MapGet("/resolve/{deviceId}", async (string deviceId, ConfigurationResolveService resolver) =>
+        {
+            var resolved = await resolver.ResolveAsync(deviceId);
+            return Results.Ok(resolved);
+        })
+        .WithName("ResolveConfiguration");
     }
 
     public sealed record CompileRequest

@@ -56,6 +56,15 @@ public sealed class ConfigurationCompiler
         };
     }
 
+    /// <summary>Wrap an already-compiled (e.g. de-duplicated) instruction set with id and hash.</summary>
+    public ResolvedConfiguration BuildResolvedFromInstructions(string deviceId, IReadOnlyList<ResolvedInstruction> instructions)
+        => new()
+        {
+            DeviceId = deviceId,
+            Instructions = instructions,
+            Hash = ComputeHash(instructions),
+        };
+
     private static string ComputeHash(IReadOnlyList<ResolvedInstruction> instructions)
     {
         var canonical = JsonSerializer.Serialize(instructions, ConfigurationJson.Options);
