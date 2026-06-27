@@ -103,6 +103,13 @@ builder.Services.AddScoped<DeviceReportingService>();
 builder.Services.AddScoped<IGraphService, GraphService>();
 builder.Services.AddSingleton<ChromePolicyValidator>();
 builder.Services.AddSingleton<AdmxParserService>();
+
+// Generic configuration provider framework (PolicyForge). Each provider owns one domain and
+// compiles authored items into client-ready ResolvedInstructions.
+builder.Services.AddSingleton<PolicyForge.Api.Providers.IConfigurationProvider, PolicyForge.Api.Providers.RegistryValueProvider>();
+builder.Services.AddSingleton<PolicyForge.Api.Providers.IConfigurationProvider, PolicyForge.Api.Providers.AdmxPolicyProvider>();
+builder.Services.AddSingleton<PolicyForge.Api.Providers.ConfigurationProviderRegistry>();
+builder.Services.AddSingleton<PolicyForge.Api.Providers.ConfigurationCompiler>();
 builder.Services.AddHttpClient(); // For ADMX download from Google
 
 // Azure App Configuration client for ClientCert:* trust settings (Managed Identity).
@@ -197,6 +204,37 @@ var app = builder.Build();
                 CreatedUtc DATETIME2 NOT NULL,
                 UpdatedUtc DATETIME2 NULL
             );
+
+            IF OBJECT_ID('ConfigurationProfiles', 'U') IS NULL
+            CREATE TABLE ConfigurationProfiles (
+                Id UNIQUEIDENTIFIER NOT NULL PRIMARY KEY,
+                Name NVARCHAR(256) NOT NULL,
+                Description NVARCHAR(MAX) NULL,
+                TargetOs NVARCHAR(64) NULL,
+                CreatedAt DATETIME2 NOT NULL,
+                UpdatedAt DATETIME2 NOT NULL
+            );
+            IF OBJECT_ID('ConfigurationProfiles', 'U') IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_ConfigurationProfiles_Name' AND object_id = OBJECT_ID('ConfigurationProfiles'))
+                CREATE UNIQUE INDEX IX_ConfigurationProfiles_Name ON ConfigurationProfiles(Name);
+
+            IF OBJECT_ID('ConfigurationProfileVersions', 'U') IS NULL
+            CREATE TABLE ConfigurationProfileVersions (
+                Id UNIQUEIDENTIFIER NOT NULL PRIMARY KEY,
+                ProfileId UNIQUEIDENTIFIER NOT NULL,
+                Version NVARCHAR(50) NOT NULL,
+                ItemsJson NVARCHAR(MAX) NOT NULL,
+                Hash NVARCHAR(128) NULL,
+                AdmxVersion NVARCHAR(50) NULL,
+                Status INT NOT NULL DEFAULT 0,
+                CreatedAt DATETIME2 NOT NULL,
+                CreatedBy NVARCHAR(256) NULL,
+                CONSTRAINT FK_ConfigurationProfileVersions_Profiles FOREIGN KEY (ProfileId)
+                    REFERENCES ConfigurationProfiles(Id) ON DELETE CASCADE
+            );
+            IF OBJECT_ID('ConfigurationProfileVersions', 'U') IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_ConfigurationProfileVersions_ProfileId_Version' AND object_id = OBJECT_ID('ConfigurationProfileVersions'))
+                CREATE UNIQUE INDEX IX_ConfigurationProfileVersions_ProfileId_Version ON ConfigurationProfileVersions(ProfileId, Version);
         ");
     }
     catch { /* Column may already exist or DB not ready */ }

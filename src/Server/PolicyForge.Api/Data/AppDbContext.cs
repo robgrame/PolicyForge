@@ -16,9 +16,24 @@ public class AppDbContext : DbContext
     public DbSet<PolicyCatalogEntry> PolicyCatalog => Set<PolicyCatalogEntry>();
     public DbSet<DeviceLog> DeviceLogs => Set<DeviceLog>();
     public DbSet<PrivilegedCommand> PrivilegedCommands => Set<PrivilegedCommand>();
+    public DbSet<ConfigurationProfile> ConfigurationProfiles => Set<ConfigurationProfile>();
+    public DbSet<ConfigurationProfileVersion> ConfigurationProfileVersions => Set<ConfigurationProfileVersion>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<ConfigurationProfile>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.Name).IsUnique();
+            e.HasMany(x => x.Versions).WithOne(x => x.Profile).HasForeignKey(x => x.ProfileId);
+        });
+
+        modelBuilder.Entity<ConfigurationProfileVersion>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.ProfileId, x.Version }).IsUnique();
+        });
+
         modelBuilder.Entity<PolicySet>(e =>
         {
             e.HasKey(x => x.Id);
