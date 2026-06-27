@@ -3,7 +3,7 @@
     Chrome Policy Manager - App-tier Deployment on SHARED infrastructure.
 
 .DESCRIPTION
-    Deploys the ChromePolicyManager application tier reusing existing shared Azure
+    Deploys the PolicyForge application tier reusing existing shared Azure
     infrastructure (an existing Azure SQL Server reached over a Private Endpoint and an
     existing VNet). This is the scenario the generic Deploy.ps1 / main.bicep do NOT cover,
     because they provision SQL/VNet/Private Endpoints from scratch.
@@ -41,12 +41,12 @@ param(
 
     [string]$Location = 'italynorth',
 
-    [string]$ResourceGroupName = "rg-cpm-$EnvironmentName",
+    [string]$ResourceGroupName = "rg-pf-$EnvironmentName",
 
     # ----- Shared infrastructure (existing) -----
     [string]$SharedInfraResourceGroup = 'rg-edgm-dev-italynorth',
     [string]$SqlServerName = 'sql-dev-wtdu3uf7rupj6',
-    [string]$SqlDatabaseName = 'ChromePolicyManager',
+    [string]$SqlDatabaseName = 'PolicyForge',
     [string]$SqlDatabaseSku = 'Basic',
     [string]$SqlAdminGroupName = 'dev-sql-admins',
     [string]$VNetName = 'vnet-dev',
@@ -54,7 +54,7 @@ param(
     [string]$SubnetPrefix = '10.40.0.96/27',
 
     # ----- App registration -----
-    [string]$AppRegistrationName = 'cpm-dev-api',
+    [string]$AppRegistrationName = 'pf-dev-api',
 
     [switch]$SkipCode,
     [switch]$SkipInfra
@@ -64,7 +64,7 @@ $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $infraDir = $PSScriptRoot
-$prefix = "cpm-$EnvironmentName"
+$prefix = "pf-$EnvironmentName"
 
 # Microsoft Graph well-known IDs
 $GraphAppId = '00000003-0000-0000-c000-000000000000'
@@ -101,7 +101,7 @@ else { Write-Ok "Subnet already exists: $SubnetName" }
 # 3. Resource group
 # ============================================================
 Write-Step "3/10 Ensuring resource group '$ResourceGroupName'"
-az group create -n $ResourceGroupName -l $Location --tags project=ChromePolicyManager environment=$EnvironmentName -o none
+az group create -n $ResourceGroupName -l $Location --tags project=PolicyForge environment=$EnvironmentName -o none
 Write-Ok "Resource group ready: $ResourceGroupName"
 
 # ============================================================
@@ -151,7 +151,7 @@ else {
     if (-not $eventGridEndpoint) { $eventGridEndpoint = '' }
     $deployOut = az deployment group create `
         --resource-group $ResourceGroupName `
-        --name "cpm-apptier-$EnvironmentName" `
+        --name "pf-apptier-$EnvironmentName" `
         --template-file (Join-Path $infraDir 'main.apptier.bicep') `
         --parameters (Join-Path $infraDir "main.apptier.$EnvironmentName.bicepparam") `
         --parameters clientSecret=$clientSecret tenantId=$TenantId clientId=$clientId `
@@ -203,8 +203,8 @@ Write-Host "    remove + reassign the UAMI on the API app and restart to force a
 function Publish-And-Deploy {
     param([string]$Name, [string]$Csproj, [string]$AppServiceName)
     Write-Host "  > Publishing $Name ..." -ForegroundColor Yellow
-    $publishDir = Join-Path $env:TEMP "cpm-publish\$Name"
-    $zipPath = Join-Path $env:TEMP "cpm-publish\$Name.zip"
+    $publishDir = Join-Path $env:TEMP "pf-publish\$Name"
+    $zipPath = Join-Path $env:TEMP "pf-publish\$Name.zip"
     if (Test-Path $publishDir) { Remove-Item $publishDir -Recurse -Force }
     if (Test-Path $zipPath)    { Remove-Item $zipPath -Force }
     dotnet publish $Csproj -c Release -o $publishDir --nologo
@@ -218,8 +218,8 @@ function Publish-And-Deploy {
 if ($SkipCode) { Write-Step '9/10 Skipping code build/deploy (SkipCode)' }
 else {
     Write-Step '9/10 Building & deploying application code'
-    Publish-And-Deploy -Name 'api'   -Csproj (Join-Path $repoRoot 'src\Server\ChromePolicyManager.Api\ChromePolicyManager.Api.csproj')     -AppServiceName $apiAppName
-    Publish-And-Deploy -Name 'admin' -Csproj (Join-Path $repoRoot 'src\Server\ChromePolicyManager.Admin\ChromePolicyManager.Admin.csproj') -AppServiceName $adminAppName
+    Publish-And-Deploy -Name 'api'   -Csproj (Join-Path $repoRoot 'src\Server\PolicyForge.Api\PolicyForge.Api.csproj')     -AppServiceName $apiAppName
+    Publish-And-Deploy -Name 'admin' -Csproj (Join-Path $repoRoot 'src\Server\PolicyForge.Admin\PolicyForge.Admin.csproj') -AppServiceName $adminAppName
 }
 
 # ============================================================

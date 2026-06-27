@@ -39,7 +39,7 @@
     App registration client secret (SecureString). Prompted if not supplied and not in the param file.
 
 .PARAMETER ResourceGroupName
-    Resource group name (default: rg-cpm-<env>).
+    Resource group name (default: rg-pf-<env>).
 
 .PARAMETER SkipInfra
     Skip the Bicep infrastructure deployment (deploy code only).
@@ -99,15 +99,15 @@ Set-StrictMode -Version Latest
 # ============================================================
 $InfraDir   = $PSScriptRoot
 $RepoRoot   = Split-Path $InfraDir -Parent
-$ApiCsproj  = Join-Path $RepoRoot 'src\Server\ChromePolicyManager.Api\ChromePolicyManager.Api.csproj'
-$AdminCsproj = Join-Path $RepoRoot 'src\Server\ChromePolicyManager.Admin\ChromePolicyManager.Admin.csproj'
+$ApiCsproj  = Join-Path $RepoRoot 'src\Server\PolicyForge.Api\PolicyForge.Api.csproj'
+$AdminCsproj = Join-Path $RepoRoot 'src\Server\PolicyForge.Admin\PolicyForge.Admin.csproj'
 $BicepFile  = Join-Path $InfraDir 'main.bicep'
 $ParamFile  = Join-Path $InfraDir "main.$EnvironmentName.bicepparam"
 
-if (-not $ResourceGroupName) { $ResourceGroupName = "rg-cpm-$EnvironmentName" }
+if (-not $ResourceGroupName) { $ResourceGroupName = "rg-pf-$EnvironmentName" }
 if (-not (Test-Path $ParamFile)) { throw "Parameter file not found: $ParamFile" }
 
-$ProjectName = 'ChromePolicyManager'
+$ProjectName = 'PolicyForge'
 
 Write-Host ''
 Write-Host '==============================================================' -ForegroundColor Cyan
@@ -167,8 +167,8 @@ Write-Host "  + Resource Group: $ResourceGroupName" -ForegroundColor Green
 # ============================================================
 # Outputs we need for code deployment; resolved from the bicep deployment or
 # derived from naming convention when infra is skipped.
-$apiAppName   = "cpm-$EnvironmentName-api"
-$adminAppName = "cpm-$EnvironmentName-admin"
+$apiAppName   = "pf-$EnvironmentName-api"
+$adminAppName = "pf-$EnvironmentName-admin"
 
 if ($SkipInfra) {
     Write-Host '> [2/4] Skipping infrastructure (SkipInfra).' -ForegroundColor DarkYellow
@@ -196,7 +196,7 @@ else {
         $overrides += "clientSecret=$plain"
     }
 
-    $deploymentName = "cpm-$EnvironmentName-$(Get-Date -Format 'yyyyMMddHHmmss')"
+    $deploymentName = "pf-$EnvironmentName-$(Get-Date -Format 'yyyyMMddHHmmss')"
 
     if ($WhatIf) {
         az deployment group what-if `
@@ -240,8 +240,8 @@ function Publish-And-Deploy {
     )
 
     Write-Host "  > Publishing $Name ..." -ForegroundColor Yellow
-    $publishDir = Join-Path $env:TEMP "cpm-publish\$Name"
-    $zipPath    = Join-Path $env:TEMP "cpm-publish\$Name.zip"
+    $publishDir = Join-Path $env:TEMP "pf-publish\$Name"
+    $zipPath    = Join-Path $env:TEMP "pf-publish\$Name.zip"
     if (Test-Path $publishDir) { Remove-Item $publishDir -Recurse -Force }
     if (Test-Path $zipPath)    { Remove-Item $zipPath -Force }
 

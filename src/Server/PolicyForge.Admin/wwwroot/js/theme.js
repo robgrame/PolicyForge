@@ -3,11 +3,11 @@
     function current() { return document.documentElement.getAttribute('data-bs-theme') || 'light'; }
     function apply(theme) {
         document.documentElement.setAttribute('data-bs-theme', theme);
-        try { localStorage.setItem('cpm-theme', theme); } catch (e) {}
+        try { localStorage.setItem('pf-theme', theme); } catch (e) {}
     }
     function persisted() {
         try {
-            var t = localStorage.getItem('cpm-theme');
+            var t = localStorage.getItem('pf-theme');
             if (!t) { t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
             return t;
         } catch (e) { return 'light'; }

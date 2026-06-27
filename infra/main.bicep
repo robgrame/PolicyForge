@@ -41,9 +41,9 @@ param privateEndpointSubnetPrefix string = '10.0.2.0/24'
 ])
 param skuTier string = environmentName == 'prod' ? 'prod' : 'dev'
 
-var prefix = 'cpm-${environmentName}'
+var prefix = 'pf-${environmentName}'
 var tags = {
-  project: 'ChromePolicyManager'
+  project: 'PolicyForge'
   environment: environmentName
   skuTier: skuTier
 }
@@ -309,7 +309,7 @@ resource sqlServer 'Microsoft.Sql/servers@2023-08-01-preview' = {
     administrators: {
       azureADOnlyAuthentication: true
       principalType: 'Application'
-      login: 'ChromePolicyManager API'
+      login: 'PolicyForge API'
       sid: uami.properties.principalId
       tenantId: tenantId
     }
@@ -318,7 +318,7 @@ resource sqlServer 'Microsoft.Sql/servers@2023-08-01-preview' = {
 
 resource sqlDatabase 'Microsoft.Sql/servers/databases@2023-08-01-preview' = {
   parent: sqlServer
-  name: 'ChromePolicyManager'
+  name: 'PolicyForge'
   location: location
   tags: tags
   sku: {
@@ -399,7 +399,7 @@ resource deviceReportQueue 'Microsoft.ServiceBus/namespaces/queues@2022-10-01-pr
 // Decoupled privileged-action pipeline (ADR-001): commands (API -> Worker) + status (Worker -> API).
 resource commandsQueue 'Microsoft.ServiceBus/namespaces/queues@2022-10-01-preview' = if (deployServiceBus) {
   parent: serviceBusNamespace
-  name: 'cpm-commands'
+  name: 'pf-commands'
   properties: {
     maxDeliveryCount: 5
     lockDuration: 'PT5M'
@@ -410,7 +410,7 @@ resource commandsQueue 'Microsoft.ServiceBus/namespaces/queues@2022-10-01-previe
 
 resource commandStatusQueue 'Microsoft.ServiceBus/namespaces/queues@2022-10-01-preview' = if (deployServiceBus) {
   parent: serviceBusNamespace
-  name: 'cpm-command-status'
+  name: 'pf-command-status'
   properties: {
     maxDeliveryCount: 5
     lockDuration: 'PT1M'
@@ -511,7 +511,7 @@ resource policyStatusSubscription 'Microsoft.EventGrid/topics/eventSubscriptions
     }
     filter: {
       includedEventTypes: [
-        'ChromePolicyManager.DevicePolicyStatusChanged'
+        'PolicyForge.DevicePolicyStatusChanged'
       ]
     }
     eventDeliverySchema: 'EventGridSchema'

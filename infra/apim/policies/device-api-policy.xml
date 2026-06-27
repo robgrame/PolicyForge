@@ -43,7 +43,7 @@
             <value>@(context.Request.Certificate.Subject.Replace("CN=",""))</value>
         </set-header>
         <!-- 4. Authenticate to backend using APIM managed identity -->
-        <authentication-managed-identity resource="api://cpm-dev-api" />
+        <authentication-managed-identity resource="api://pf-dev-api" />
     </inbound>
     <backend>
         <base />

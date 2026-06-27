@@ -6,7 +6,7 @@ namespace PolicyForge.Api.Services;
 
 /// <summary>
 /// Singleton holder for the Service Bus sender that publishes privileged commands to the
-/// <c>cpm-commands</c> queue. Mirrors <see cref="DeviceReportQueue"/>: Managed Identity first,
+/// <c>pf-commands</c> queue. Mirrors <see cref="DeviceReportQueue"/>: Managed Identity first,
 /// connection string fallback, disabled (no-op) if neither is configured.
 /// </summary>
 public sealed class CommandQueueClient : IAsyncDisposable

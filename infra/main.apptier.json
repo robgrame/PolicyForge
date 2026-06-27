@@ -64,7 +64,7 @@
     },
     "sqlDatabaseName": {
       "type": "string",
-      "defaultValue": "ChromePolicyManager",
+      "defaultValue": "PolicyForge",
       "metadata": {
         "description": "Name of the database on the existing SQL Server"
       }
@@ -116,10 +116,10 @@
     }
   },
   "variables": {
-    "prefix": "[format('cpm-{0}', parameters('environmentName'))]",
+    "prefix": "[format('pf-{0}', parameters('environmentName'))]",
     "uniqueSuffix": "[take(uniqueString(resourceGroup().id), 6)]",
     "tags": {
-      "project": "ChromePolicyManager",
+      "project": "PolicyForge",
       "environment": "[parameters('environmentName')]",
       "skuTier": "[parameters('skuTier')]"
     },
@@ -431,7 +431,7 @@
             "prefix": {
               "type": "string",
               "metadata": {
-                "description": "Resource name prefix, e.g. cpm-dev"
+                "description": "Resource name prefix, e.g. pf-dev"
               }
             },
             "location": {
@@ -569,11 +569,11 @@
                     },
                     {
                       "name": "ServiceBus:CommandQueue",
-                      "value": "cpm-commands"
+                      "value": "pf-commands"
                     },
                     {
                       "name": "ServiceBus:CommandStatusQueue",
-                      "value": "cpm-command-status"
+                      "value": "pf-command-status"
                     },
                     {
                       "name": "PushRemediation:ScriptPolicyId",

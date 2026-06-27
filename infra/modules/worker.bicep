@@ -1,12 +1,12 @@
 // ============================================================
 // Privileged-action Worker (ADR-001)
 // Azure Functions (.NET isolated) hosted on the existing App Service Plan (Dedicated).
-// SB-triggered CommandHandler consumes cpm-commands and reports on cpm-command-status.
+// SB-triggered CommandHandler consumes pf-commands and reports on pf-command-status.
 // Passwordless throughout: Managed Identity for Storage, Service Bus and Graph (no SAS).
 // Deployed opt-in (deployWorker=true) once the Service Bus namespace exists.
 // ============================================================
 
-@description('Resource name prefix, e.g. cpm-dev')
+@description('Resource name prefix, e.g. pf-dev')
 param prefix string
 
 param location string = resourceGroup().location
@@ -87,8 +87,8 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
         // Service Bus trigger via Managed Identity (namespace SAS disabled)
         { name: 'ServiceBus__fullyQualifiedNamespace', value: '${serviceBusNamespaceName}.servicebus.windows.net' }
         { name: 'ServiceBus__clientId', value: workerUami.properties.clientId }
-        { name: 'ServiceBus:CommandQueue', value: 'cpm-commands' }
-        { name: 'ServiceBus:CommandStatusQueue', value: 'cpm-command-status' }
+        { name: 'ServiceBus:CommandQueue', value: 'pf-commands' }
+        { name: 'ServiceBus:CommandStatusQueue', value: 'pf-command-status' }
         { name: 'PushRemediation:ScriptPolicyId', value: pushRemediationScriptPolicyId }
       ]
     }

@@ -3,7 +3,7 @@
 
 > Documento di design / Architecture Decision Record.
 > **Stato:** Proposto · **Data:** 2026-06-27 · **Autore:** @robgrame (con GitHub Copilot)
-> **Ambito:** generalizzare `ChromePolicyManager` (specifico per gli ADMX di Google Chrome)
+> **Ambito:** generalizzare `PolicyForge` (specifico per gli ADMX di Google Chrome)
 > in una piattaforma **agnostica** capace di gestire *qualunque* ADMX e, soprattutto,
 > classi di configurazione che Intune oggi non copre bene o non copre affatto
 > (registry arbitrario, servizi Windows, scheduled task, file, gruppi locali,
@@ -11,14 +11,14 @@
 > cloud-only / Intune**.
 >
 > Documento fondativo del repository **PolicyForge** (clone evolutivo di
-> ChromePolicyManager). Erede e complementare di
+> PolicyForge). Erede e complementare di
 > [`adr-001-decoupling-azioni-privilegiate.md`](./adr-001-decoupling-azioni-privilegiate.md).
 
 ---
 
 ## 1. Contesto
 
-`ChromePolicyManager` nasce per colmare un gap puntuale: gli ADMX di Chrome non si
+`PolicyForge` nasce per colmare un gap puntuale: gli ADMX di Chrome non si
 applicano sui device **Entra ID–only** perché Chrome usa `RegisterGPNotification()` e il
 GP Client Service non rispecchia le chiavi `PolicyManager` su
 `HKLM\SOFTWARE\Policies\Google\Chrome`. La soluzione consegna le policy **direttamente nel
@@ -43,7 +43,7 @@ Remediations non versionate e OMA-URI fragili.
 | **Variabili d'ambiente** | No | Set/remove di env var di sistema/utente |
 | **Drift detection & remediation** | Solo Remediations script-based, output non strutturato | Ciclo **Detect → Apply → Remediate → Report** per ogni item, con compliance per device e storico |
 
-### 1.2 Cosa riusiamo "as-is" da ChromePolicyManager
+### 1.2 Cosa riusiamo "as-is" da PolicyForge
 
 Quasi tutto lo scaffolding è **già generico** e di alto valore:
 
@@ -192,7 +192,7 @@ Intune ──(detection script)──▶ device
 
 ## 7. Riuso architettura & vincoli di subscription
 
-Invariati rispetto a ChromePolicyManager e **non negoziabili**:
+Invariati rispetto a PolicyForge e **non negoziabili**:
 
 - **No SAS** ovunque → **Managed Identity** con `DefaultAzureCredential`.
 - **No Public Network Access** sui data-plane (SQL, Storage) → **Private Endpoint** +
@@ -209,7 +209,7 @@ Invariati rispetto a ChromePolicyManager e **non negoziabili**:
 | Fase | Contenuto | Esito |
 |---|---|---|
 | **0 — Bootstrap** | Repo `PolicyForge` creato, seed dal codice attuale, **questo ADR** | ✅ in corso |
-| **1 — Rename & namespace** | `ChromePolicyManager.*` → `PolicyForge.*` (progetti, namespace, `.slnx`, infra prefissi `cpm-` → `pf-`), README riscritto sul nuovo scope | build verde |
+| **1 — Rename & namespace** | `PolicyForge.*` → `PolicyForge.*` (progetti, namespace, `.slnx`, infra prefissi `pf-` → `pf-`), README riscritto sul nuovo scope | build verde |
 | **2 — Astrazione provider** | `IConfigurationProvider`, modello `ConfigurationProfile/Item`, refactor del dominio Chrome→generico; **AdmxPolicy** e **RegistryValue** come primi provider | API + Admin compilano, Chrome resta caso d'uso valido |
 | **3 — Provider v1 restanti** | WindowsService, ScheduledTask, FileResource, LocalGroupMembership, EnvironmentVariable (server validate/compile + client Test/Set) | provider testati singolarmente |
 | **4 — ADMX generico** | Ingestion multi-ADMX, catalogo per namespace, authoring UI generalizzata | import di un ADMX arbitrario funzionante |

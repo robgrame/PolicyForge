@@ -3,7 +3,7 @@
     Chrome Policy Manager - Azure Infrastructure Deployment Script
 
 .DESCRIPTION
-    Deploys the complete ChromePolicyManager infrastructure to Azure:
+    Deploys the complete PolicyForge infrastructure to Azure:
     - Resource Group
     - App Service Plan + Web App (.NET 10)
     - Azure SQL Server + Database
@@ -47,8 +47,8 @@ Set-StrictMode -Version Latest
 # ============================================================
 # Configuration
 # ============================================================
-$ProjectName = "ChromePolicyManager"
-$Prefix = "cpm-$EnvironmentName"
+$ProjectName = "PolicyForge"
+$Prefix = "pf-$EnvironmentName"
 $ResourceGroupName = "rg-$Prefix"
 $Tags = @{ project = $ProjectName; environment = $EnvironmentName }
 
@@ -159,7 +159,7 @@ $appConfigConnStr = az appconfig credential list --name $appConfigName --resourc
 Write-Host "▶ [4/9] Creating Azure SQL Server + Database..." -ForegroundColor Yellow
 
 $sqlServerName = "$Prefix-sql-$suffix"
-$sqlDbName = "ChromePolicyManager"
+$sqlDbName = "PolicyForge"
 
 # Register provider if needed
 az provider register --namespace Microsoft.Sql --wait 2>$null

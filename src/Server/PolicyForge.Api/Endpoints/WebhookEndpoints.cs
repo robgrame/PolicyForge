@@ -33,7 +33,7 @@ public static class WebhookEndpoints
             }
 
             // Step 2: Verify client state
-            var expectedState = config["GraphWebhooks:ClientState"] ?? "cpm-webhook-secret";
+            var expectedState = config["GraphWebhooks:ClientState"] ?? "pf-webhook-secret";
 
             // Step 3: Read notification payload
             using var reader = new StreamReader(context.Request.Body);

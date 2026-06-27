@@ -14,7 +14,7 @@ builder.Services.AddSingleton(_ =>
     return new GraphServiceClient(credential, new[] { "https://graph.microsoft.com/.default" });
 });
 
-// Privileged Graph actions (push remediation) + status publisher (cpm-command-status).
+// Privileged Graph actions (push remediation) + status publisher (pf-command-status).
 builder.Services.AddSingleton<StatusPublisher>();
 builder.Services.AddScoped<PrivilegedGraphActions>();
 

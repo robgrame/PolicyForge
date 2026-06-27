@@ -202,7 +202,7 @@ else
 
     private async Task ConnectHubAsync()
     {
-        var apiBaseUrl = Config["ApiBaseUrl"] ?? "https://cpm-dev-api.azurewebsites.net";
+        var apiBaseUrl = Config["ApiBaseUrl"] ?? "https://pf-dev-api.azurewebsites.net";
         var hubUrl = $"{apiBaseUrl.TrimEnd('/')}{PolicyStatusHubPath}";
         var apiScopes = Config.GetSection("Api:Scopes").Get<string[]>() ?? [];
         try

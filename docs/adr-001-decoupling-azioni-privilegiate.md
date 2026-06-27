@@ -14,14 +14,14 @@
 
 ## 1. Contesto
 
-Oggi `ChromePolicyManager.Api` è un'unica applicazione App Service che assolve **due
+Oggi `PolicyForge.Api` è un'unica applicazione App Service che assolve **due
 ruoli con profili di rischio molto diversi**:
 
 1. **Superficie esposta** — riceve traffico dai client (via APIM/mTLS) e dal portale
    Admin: serve le policy, accetta i device-report, espone gli endpoint di gestione.
 2. **Attore privilegiato** — esegue *direttamente* e in modo **sincrono** chiamate
    Microsoft Graph verso Intune ed Entra ID, usando la propria **User-Assigned Managed
-   Identity** (`cpm-dev-api-id`) a cui sono assegnate app-role ad alto privilegio.
+   Identity** (`pf-dev-api-id`) a cui sono assegnate app-role ad alto privilegio.
 
 ### 1.1 Inventario delle azioni privilegiate attuali
 
@@ -83,18 +83,18 @@ Introdurre un **control-plane asincrono basato su comandi**:
 
 ```
                        ┌──────────────────────────┐
-   client ─mTLS(APIM)─▶│  ChromePolicyManager.Api │   (low-priv: nessuna app-role Graph)
+   client ─mTLS(APIM)─▶│  PolicyForge.Api │   (low-priv: nessuna app-role Graph)
    portale Admin ─────▶│  - serve policy          │
                        │  - accetta report        │   enqueue command
                        │  - enqueue comandi ──────┼──────────────┐
                        └───────────┬──────────────┘              ▼
                                    │ read/write           ┌─────────────────────┐
-                                   ▼                      │ SB queue cpm-commands│
+                                   ▼                      │ SB queue pf-commands│
                                 ┌─────┐  ◀── stato ──────  └──────────┬──────────┘
                                 │ SQL │                               │ SB trigger
                                 └─────┘  ◀── risultati ──┐            ▼
                                                          │   ┌───────────────────────┐
-   Graph webhook ─▶ /api/webhooks (API) ─ enqueue ──────┘   │ cpm-worker (Functions) │
+   Graph webhook ─▶ /api/webhooks (API) ─ enqueue ──────┘   │ pf-worker (Functions) │
                                                              │  MI privilegiata        │
                                                              │  Graph → Intune/Entra   │
                                                              └───────────────────────┘
@@ -154,13 +154,13 @@ i Private Endpoint richiederebbero Premium ≈ €670/mese). **Basic supporta so
 
 | Queue | Producer | Consumer | Note |
 |---|---|---|---|
-| `cpm-commands` | API + webhook receiver | `cpm-worker` | coda comandi privilegiati |
-| `cpm-commands/$DeadLetterQueue` | (sistema) | alerting/manuale | DLQ automatica |
-| `device-reports` | API (esistente) | **migrare** su `cpm-worker` o lasciare in API | vedi §10 fase 3 |
+| `pf-commands` | API + webhook receiver | `pf-worker` | coda comandi privilegiati |
+| `pf-commands/$DeadLetterQueue` | (sistema) | alerting/manuale | DLQ automatica |
+| `device-reports` | API (esistente) | **migrare** su `pf-worker` o lasciare in API | vedi §10 fase 3 |
 
 Una sola coda comandi è sufficiente in v1 (volumi bassi). Se in futuro serve isolare i
 ritmi (es. dispatch massivi vs webhook real-time), **splittare in code per priorità**
-(`cpm-commands-bulk`, `cpm-commands-rt`) — non con i topic, non disponibili in Basic.
+(`pf-commands-bulk`, `pf-commands-rt`) — non con i topic, non disponibili in Basic.
 
 ---
 
@@ -195,7 +195,7 @@ VNet-integrato per raggiungere SQL via private endpoint.
 
 | Function | Trigger | Ruolo |
 |---|---|---|
-| `CommandHandler` | Service Bus (`cpm-commands`) | dispatch su `type` → handler specifico |
+| `CommandHandler` | Service Bus (`pf-commands`) | dispatch su `type` → handler specifico |
 | `WebhookSubscriptionTimer` | Timer (es. ogni 6h) | enqueue `WebhookSubscriptionSync` (rinnovo prima della scadenza Graph, max ~3 giorni) |
 
 ---
@@ -245,9 +245,9 @@ CREATE TABLE PrivilegedCommands (
 
 | Identità | Prima | Dopo |
 |---|---|---|
-| `cpm-api` (UAMI) | app-role Graph **privilegiate** + SB sender/receiver | **solo** SB *Sender* su `cpm-commands`; SQL R/W; App Config Reader; (opz.) `Group.Read.All` per la search |
-| `cpm-worker` (UAMI) | — | app-role Graph privilegiate (`DeviceManagementManagedDevices.PrivilegedOperations.All`, `…Read.All`, `Device.Read.All`, `Group.Read.All`); SB *Receiver* su `cpm-commands`; SQL R/W; App Config Reader |
-| `cpm-admin` (SAMI) | invariata | invariata (parla solo con l'API) |
+| `pf-api` (UAMI) | app-role Graph **privilegiate** + SB sender/receiver | **solo** SB *Sender* su `pf-commands`; SQL R/W; App Config Reader; (opz.) `Group.Read.All` per la search |
+| `pf-worker` (UAMI) | — | app-role Graph privilegiate (`DeviceManagementManagedDevices.PrivilegedOperations.All`, `…Read.All`, `Device.Read.All`, `Group.Read.All`); SB *Receiver* su `pf-commands`; SQL R/W; App Config Reader |
+| `pf-admin` (SAMI) | invariata | invariata (parla solo con l'API) |
 
 Ruoli dati-plane SB (MI): **Azure Service Bus Data Sender** (API) e **Data Receiver**
 (worker), assegnati a livello di coda dove possibile.
@@ -269,8 +269,8 @@ Due opzioni:
 Admin toggle ON ─▶ API: UpdateAssignmentPushRemediation
                    ├─ persiste PushRemediationEnabled (SQL)
                    ├─ INSERT PrivilegedCommands(Pending)
-                   └─ SB.Send(cpm-commands, PushRemediationDispatch)  ──▶ 200 "in coda"
-cpm-worker: trigger ─▶ Running ─▶ enumera gruppo ─▶ risolve managedDevice
+                   └─ SB.Send(pf-commands, PushRemediationDispatch)  ──▶ 200 "in coda"
+pf-worker: trigger ─▶ Running ─▶ enumera gruppo ─▶ risolve managedDevice
             ─▶ invia remediation a batch ─▶ ResultJson(sent/failed) ─▶ Succeeded
 Portale: legge stato comando (badge "in corso → completato N inviati / M falliti")
 ```
@@ -278,13 +278,13 @@ Portale: legge stato comando (badge "in corso → completato N inviati / M falli
 ### 9.2 Cambio membership gruppo (real-time)
 ```
 Graph ─▶ /api/webhooks (API, validato ClientState) ─▶ INSERT cmd + SB.Send(GroupMembershipChanged) ─▶ 202
-cpm-worker ─▶ rilegge membership ─▶ ricalcola assegnazioni interessate ─▶ (eventuale) dispatch
+pf-worker ─▶ rilegge membership ─▶ ricalcola assegnazioni interessate ─▶ (eventuale) dispatch
 ```
 
 ### 9.3 Rinnovo subscription (timer)
 ```
 WebhookSubscriptionTimer (worker) ogni 6h ─▶ SB.Send(WebhookSubscriptionSync)
-cpm-worker ─▶ per ogni gruppo attivo: crea/PATCH(rinnova)/DELETE subscription
+pf-worker ─▶ per ogni gruppo attivo: crea/PATCH(rinnova)/DELETE subscription
 ```
 
 ---
@@ -293,7 +293,7 @@ cpm-worker ─▶ per ogni gruppo attivo: crea/PATCH(rinnova)/DELETE subscriptio
 
 | Fase | Contenuto | Reversibile? |
 |---|---|---|
-| 0 | Doc (questo ADR) + provisioning `cpm-worker` (Functions) + coda `cpm-commands` + tabella `PrivilegedCommands` | ✅ |
+| 0 | Doc (questo ADR) + provisioning `pf-worker` (Functions) + coda `pf-commands` + tabella `PrivilegedCommands` | ✅ |
 | 1 | Spostare **PushRemediation** dietro comando; API enqueue, worker esegue. Rimuovere le app-role Intune dall'API | ✅ (feature flag `PrivilegedActions:Mode = Inline|Queued`) |
 | 2 | Spostare **webhook subscription lifecycle** + handler `GroupMembershipChanged` sul worker | ✅ |
 | 3 | (Opz.) Spostare anche `device-reports` processor sul worker, dismettere il `BackgroundService` in-API | ✅ |
@@ -365,7 +365,7 @@ Impatto trascurabile in dev; il valore è **sicurezza + resilienza**, non rispar
 
 Decisioni prese dal proprietario:
 1. **GroupSearch read-only** resta sull'API (autocomplete, nessun decoupling).
-2. **Retry/DLQ**: `maxDeliveryCount = 5` su `cpm-commands`; back-off gestito dal runtime SB; DLQ su scadenza/esaurimento tentativi. Alert su DLQ da configurare lato monitoring.
+2. **Retry/DLQ**: `maxDeliveryCount = 5` su `pf-commands`; back-off gestito dal runtime SB; DLQ su scadenza/esaurimento tentativi. Alert su DLQ da configurare lato monitoring.
 3. **Stato in tempo reale**: **SignalR** (`CommandStatusHub`).
 4. **device-reports**: da migrare sul Worker (fase successiva).
 5. **Tier SB**: **Basic**, idempotenza a livello applicativo (riga `PrivilegedCommands`).
@@ -375,7 +375,7 @@ Raffinamento architetturale adottato nello scaffold (deviazione rispetto alle bo
   (es. `EntraGroupId` + `GroupName` per il dispatch). Questo mantiene SQL di proprietà dell'API,
   riduce la superficie di private endpoint del Worker e semplifica la RBAC.
 - **Stato via coda dedicata.** Il Worker non può scrivere direttamente sull'hub SignalR dell'API,
-  quindi pubblica `CommandStatusUpdate` sulla coda **`cpm-command-status`**; un `BackgroundService`
+  quindi pubblica `CommandStatusUpdate` sulla coda **`pf-command-status`**; un `BackgroundService`
   dell'API (`CommandStatusRelay`) la consuma, aggiorna la riga `PrivilegedCommands` e fa il
   broadcast SignalR ai client del portale.
 - **Webhook membership.** Anziché un comando generico `GroupMembershipChanged` che richiederebbe
@@ -387,7 +387,7 @@ Raffinamento architetturale adottato nello scaffold (deviazione rispetto alle bo
 ### Stato implementazione (scaffold compilante, feature-flag OFF di default)
 | Componente | Stato |
 |---|---|
-| `ChromePolicyManager.Contracts` (envelope/tipi/payload/stato) | ✅ |
+| `PolicyForge.Contracts` (envelope/tipi/payload/stato) | ✅ |
 | Entità EF `PrivilegedCommand` + creazione tabella idempotente | ✅ |
 | `CommandQueueClient` + `ICommandPublisher` (riga Pending + enqueue) | ✅ |
 | `CommandStatusHub` (SignalR) + `CommandStatusRelay` | ✅ |
@@ -397,7 +397,7 @@ Raffinamento architetturale adottato nello scaffold (deviazione rispetto alle bo
 | `PrivilegedGraphActions` (porting push remediation, no SQL/Audit) | ✅ |
 | `WebhookSubscriptionSync` nel Worker | ⏳ stub (fase 2) |
 | Migrazione `device-reports` sul Worker | ⏳ fase 3 |
-| Infra: code `cpm-commands`/`cpm-command-status` + modulo Worker opt-in | ✅ |
+| Infra: code `pf-commands`/`pf-command-status` + modulo Worker opt-in | ✅ |
 | Sottoscrizione SignalR lato portale Admin | ⏳ fase 2 |
 
 Con `PrivilegedActions:Mode` assente o `Inline`, il comportamento resta identico a oggi (l'API
@@ -438,7 +438,7 @@ EventGrid topic ─▶ (subscription webhook) ─▶ POST /api/eventgrid/policy-
 | API (producer) | `DeviceReportProcessor` + fallback endpoint | emette l'evento dopo aver persistito il report |
 | API (subscriber) | `EventGridEndpoints` (`/api/eventgrid/policy-status`) | handshake + ribroadcast |
 | API (subscriber) | `PolicyStatusHub` (SignalR) | push verso il portale |
-| Infra | topic `cpm-<env>-events` + RBAC + subscription opt-in | backbone eventi |
+| Infra | topic `pf-<env>-events` + RBAC + subscription opt-in | backbone eventi |
 
 ### Note operative
 - La **event subscription** (webhook) è **opt-in** (`deployEventGridSubscription=true`): va
@@ -451,7 +451,7 @@ EventGrid topic ─▶ (subscription webhook) ─▶ POST /api/eventgrid/policy-
   eventi sullo stesso topic: l'API resta l'unico subscriber/broadcaster SignalR, senza modifiche
   al contratto.
 
-> Differenza con la coda `cpm-command-status`: quest'ultima serve il ciclo di vita dei **comandi
+> Differenza con la coda `pf-command-status`: quest'ultima serve il ciclo di vita dei **comandi
 > privilegiati** (semantica work-queue/affidabilità), mentre Event Grid serve le **notifiche di
 > stato** ad alto fan-out verso il portale. Sono due domini distinti e coesistono.
 

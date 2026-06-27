@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.SignalR;
 namespace PolicyForge.Api.Services;
 
 /// <summary>
-/// Background relay that consumes <c>cpm-command-status</c> messages emitted by the Worker,
+/// Background relay that consumes <c>pf-command-status</c> messages emitted by the Worker,
 /// persists the status onto the matching PrivilegedCommands row and broadcasts it to the
 /// Admin portal over SignalR. Keeps SQL ownership in the API while the Worker stays SQL-free.
 /// </summary>

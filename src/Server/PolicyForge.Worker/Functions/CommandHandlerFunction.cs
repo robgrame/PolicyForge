@@ -8,8 +8,8 @@ namespace PolicyForge.Worker.Functions;
 
 /// <summary>
 /// Service Bus–triggered entry point for the decoupled privileged-action pipeline (ADR-001).
-/// Consumes <c>cpm-commands</c>, dispatches by command type, and reports progress/outcome back
-/// to the API on <c>cpm-command-status</c>. Throwing lets Service Bus retry up to MaxDeliveryCount
+/// Consumes <c>pf-commands</c>, dispatches by command type, and reports progress/outcome back
+/// to the API on <c>pf-command-status</c>. Throwing lets Service Bus retry up to MaxDeliveryCount
 /// and then dead-letter, so idempotency is handled by the API tracking row.
 /// </summary>
 public sealed class CommandHandlerFunction

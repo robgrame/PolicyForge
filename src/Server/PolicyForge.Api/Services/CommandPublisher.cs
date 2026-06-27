@@ -7,7 +7,7 @@ namespace PolicyForge.Api.Services;
 /// <summary>
 /// Publishes privileged commands to the Worker: persists a tracking row in PrivilegedCommands
 /// (status Pending) then enqueues the envelope on the command queue (status Dispatched).
-/// The Worker reports progress back via the status relay (cpm-command-status queue).
+/// The Worker reports progress back via the status relay (pf-command-status queue).
 /// </summary>
 public interface ICommandPublisher
 {

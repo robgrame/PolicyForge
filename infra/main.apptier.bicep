@@ -41,7 +41,7 @@ param adminClientSecret string = ''
 param sqlServerFqdn string
 
 @description('Name of the database on the existing SQL Server')
-param sqlDatabaseName string = 'ChromePolicyManager'
+param sqlDatabaseName string = 'PolicyForge'
 
 @description('Resource ID of the existing delegated subnet for App Service VNet integration')
 param integrationSubnetId string
@@ -65,11 +65,11 @@ param pushRemediationScriptPolicyId string = ''
 @description('Event Grid topic endpoint for the policy-status pipeline (from the infra tier output).')
 param eventGridTopicEndpoint string = ''
 
-var prefix = 'cpm-${environmentName}'
+var prefix = 'pf-${environmentName}'
 // Short suffix for globally-unique resource names (Key Vault, App Configuration)
 var uniqueSuffix = take(uniqueString(resourceGroup().id), 6)
 var tags = {
-  project: 'ChromePolicyManager'
+  project: 'PolicyForge'
   environment: environmentName
   skuTier: skuTier
 }

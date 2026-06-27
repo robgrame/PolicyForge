@@ -6,7 +6,7 @@
 param location string = resourceGroup().location
 
 @description('APIM instance name')
-param apimName string = 'cpm-dev-apim2'
+param apimName string = 'pf-dev-apim2'
 
 @description('Publisher email for APIM')
 param publisherEmail string
@@ -15,7 +15,7 @@ param publisherEmail string
 param publisherName string = 'Chrome Policy Manager'
 
 @description('Backend API URL')
-param backendApiUrl string = 'https://cpm-dev-api.azurewebsites.net'
+param backendApiUrl string = 'https://pf-dev-api.azurewebsites.net'
 
 @description('Application Insights instrumentation key')
 param appInsightsInstrumentationKey string
@@ -84,7 +84,7 @@ resource diagnostics 'Microsoft.ApiManagement/service/diagnostics@2023-09-01-pre
 // Backend definition pointing to the App Service API
 resource backend 'Microsoft.ApiManagement/service/backends@2023-09-01-preview' = {
   parent: apim
-  name: 'cpm-backend'
+  name: 'pf-backend'
   properties: {
     title: 'Chrome Policy Manager API'
     description: 'Backend App Service hosting the CPM API'
@@ -104,7 +104,7 @@ resource backend 'Microsoft.ApiManagement/service/backends@2023-09-01-preview' =
 // API definition for device endpoints
 resource deviceApi 'Microsoft.ApiManagement/service/apis@2023-09-01-preview' = {
   parent: apim
-  name: 'cpm-device-api'
+  name: 'pf-device-api'
   properties: {
     displayName: 'Chrome Policy Manager - Device API'
     description: 'Device-facing endpoints for Chrome policy delivery and compliance reporting'

@@ -21,7 +21,7 @@
     .\Publish-IntuneRemediation.ps1 -TenantId 46b06a5e-8f7a-467b-bc9a-e776011fbb57 -UseDeviceCode
 
 .EXAMPLE
-    .\Publish-IntuneRemediation.ps1 -SetApiAppSetting -ResourceGroup rg-cpm-dev -ApiAppName cpm-dev-api
+    .\Publish-IntuneRemediation.ps1 -SetApiAppSetting -ResourceGroup rg-pf-dev -ApiAppName pf-dev-api
 #>
 [CmdletBinding()]
 param(
@@ -42,8 +42,8 @@ param(
     [switch]$EnforceSignatureCheck,
     # Optionally persist the resulting id into the API app setting.
     [switch]$SetApiAppSetting,
-    [string]$ResourceGroup = "rg-cpm-dev",
-    [string]$ApiAppName    = "cpm-dev-api"
+    [string]$ResourceGroup = "rg-pf-dev",
+    [string]$ApiAppName    = "pf-dev-api"
 )
 
 $ErrorActionPreference = "Stop"

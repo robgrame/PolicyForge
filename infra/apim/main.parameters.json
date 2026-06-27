@@ -3,7 +3,7 @@
   "contentVersion": "1.0.0.0",
   "parameters": {
     "apimName": {
-      "value": "cpm-dev-apim2"
+      "value": "pf-dev-apim2"
     },
     "publisherEmail": {
       "value": "doc@mslabs.it"
@@ -12,7 +12,7 @@
       "value": "Chrome Policy Manager"
     },
     "backendApiUrl": {
-      "value": "https://cpm-dev-api.azurewebsites.net"
+      "value": "https://pf-dev-api.azurewebsites.net"
     },
     "appInsightsInstrumentationKey": {
       "value": "02cf651d-ccd8-43c6-858d-64abf0501c9a"

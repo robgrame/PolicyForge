@@ -19,7 +19,7 @@ public enum CommandStatus
 }
 
 /// <summary>
-/// Status update emitted by the Worker on the <c>cpm-command-status</c> queue and consumed by
+/// Status update emitted by the Worker on the <c>pf-command-status</c> queue and consumed by
 /// the API's status relay, which persists it and broadcasts it to the portal over SignalR.
 /// </summary>
 public sealed record CommandStatusUpdate

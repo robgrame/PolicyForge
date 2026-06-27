@@ -20,7 +20,7 @@
 param()
 
 # === EDIT BEFORE UPLOADING TO INTUNE =========================================
-$ExpectedApiUrl         = 'https://cpm-dev-api.azurewebsites.net'
+$ExpectedApiUrl         = 'https://pf-dev-api.azurewebsites.net'
 $ExpectedCertIssuerLike = 'CN=MSLABS-SUBCA01'   # '' to remove the var
 # =============================================================================
 

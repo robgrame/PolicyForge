@@ -8,7 +8,7 @@ namespace PolicyForge.Worker.Services;
 
 /// <summary>
 /// Publishes <see cref="CommandStatusUpdate"/> messages back to the API on the
-/// <c>cpm-command-status</c> queue. The API's status relay persists them and pushes
+/// <c>pf-command-status</c> queue. The API's status relay persists them and pushes
 /// them to the portal over SignalR. The Worker therefore never touches SQL.
 /// </summary>
 public sealed class StatusPublisher : IAsyncDisposable

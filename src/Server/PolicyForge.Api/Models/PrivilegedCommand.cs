@@ -6,7 +6,7 @@ namespace PolicyForge.Api.Models;
 /// <summary>
 /// Persistent record of a privileged command enqueued for the Worker.
 /// Tracks lifecycle status updated by the API status relay (fed by the Worker over the
-/// cpm-command-status queue) and surfaced to the portal via SignalR.
+/// pf-command-status queue) and surfaced to the portal via SignalR.
 /// </summary>
 public class PrivilegedCommand
 {

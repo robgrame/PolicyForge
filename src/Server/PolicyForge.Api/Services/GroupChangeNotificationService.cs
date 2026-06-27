@@ -121,7 +121,7 @@ public class GroupChangeNotificationService : BackgroundService
                         NotificationUrl = $"{notificationUrl}?groupId={groupId}",
                         Resource = $"groups/{groupId}/members",
                         ExpirationDateTime = new DateTimeOffset(expiry),
-                        ClientState = _configuration["GraphWebhooks:ClientState"] ?? "cpm-webhook-secret"
+                        ClientState = _configuration["GraphWebhooks:ClientState"] ?? "pf-webhook-secret"
                     }, cancellationToken: ct);
 
                 if (subscription?.Id != null)

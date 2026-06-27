@@ -1,7 +1,7 @@
 # PolicyForge
 
 > ⚠️ **Repository in evoluzione.** PolicyForge nasce come *clone evolutivo* di
-> ChromePolicyManager e lo generalizza in una **piattaforma universale di desired-state
+> PolicyForge e lo generalizza in una **piattaforma universale di desired-state
 > configuration per device Intune** (qualunque ADMX + registry, servizi Windows, scheduled
 > task, file, gruppi locali, variabili d'ambiente — stile *Group Policy Preferences*).
 > Il codice qui sotto è ancora quello Chrome-specifico ereditato; il refactor è descritto
@@ -77,16 +77,16 @@ Chrome Policy Manager implements a **server-side policy resolution engine** that
 ## 🏗️ Project Structure
 
 ```
-ChromePolicyManager/
+PolicyForge/
 ├── src/
 │   ├── Server/
-│   │   ├── ChromePolicyManager.Api/        # REST API (.NET 10 Minimal API)
+│   │   ├── PolicyForge.Api/        # REST API (.NET 10 Minimal API)
 │   │   │   ├── Data/                       # EF Core DbContext + models
 │   │   │   ├── Endpoints/                  # Policy, Assignment, Device, Catalog, Monitoring, Webhook
 │   │   │   ├── Middleware/                 # APIM Gateway authentication middleware
 │   │   │   ├── Models/                     # PolicySet, Version, Assignment, CatalogEntry, DeviceLog
 │   │   │   └── Services/                   # AdmxParser, EffectivePolicy, Graph, Reporting, Validator
-│   │   └── ChromePolicyManager.Admin/      # Blazor Server Admin UI (MudBlazor)
+│   │   └── PolicyForge.Admin/      # Blazor Server Admin UI (MudBlazor)
 │   │       └── Components/Pages/           # Dashboard, Catalog, Policies, Assignments, Devices
 │   └── Client/
 │       ├── Detect-ChromePolicy.ps1         # Intune detection script (supports inline remediation)

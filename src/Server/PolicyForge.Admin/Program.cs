@@ -55,7 +55,7 @@ builder.Services.Configure<AuthenticationOptions>(o =>
     o.DefaultChallengeScheme = CookieAuthenticationDefaults.AuthenticationScheme;
 });
 
-// App-role names defined on the cpm-dev-admin app registration.
+// App-role names defined on the pf-dev-admin app registration.
 string[] readRoles =
 {
     "PolicyManager.Administrator",
@@ -108,7 +108,7 @@ builder.Services.AddSignalR(options =>
 });
 
 // API client with extended timeout for large file uploads (ADMX zip ~113MB)
-var apiBaseUrl = builder.Configuration["ApiBaseUrl"] ?? "https://cpm-dev-api.azurewebsites.net";
+var apiBaseUrl = builder.Configuration["ApiBaseUrl"] ?? "https://pf-dev-api.azurewebsites.net";
 builder.Services.AddHttpClient<PolicyApiClient>(client =>
 {
     client.BaseAddress = new Uri(apiBaseUrl);
