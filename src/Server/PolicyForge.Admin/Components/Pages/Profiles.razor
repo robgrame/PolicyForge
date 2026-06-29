@@ -175,9 +175,13 @@ else
                 }
 
                 <ul class="nav nav-tabs mb-3">
-                    <li class="nav-item"><button class="nav-link @(_tab == "reg" ? "active" : "")" @onclick='() => _tab = "reg"'>Registro</button></li>
-                    <li class="nav-item"><button class="nav-link @(_tab == "env" ? "active" : "")" @onclick='() => _tab = "env"'>Variabile ambiente</button></li>
-                    <li class="nav-item"><button class="nav-link @(_tab == "raw" ? "active" : "")" @onclick='() => _tab = "raw"'>Avanzato (JSON)</button></li>
+                    <li class="nav-item"><button class="nav-link @(_tab == "reg" ? "active" : "")" @onclick='() => _tab = "reg"'><i class="bi bi-hdd-stack me-1"></i>Registro</button></li>
+                    <li class="nav-item"><button class="nav-link @(_tab == "svc" ? "active" : "")" @onclick='() => _tab = "svc"'><i class="bi bi-gear me-1"></i>Servizio</button></li>
+                    <li class="nav-item"><button class="nav-link @(_tab == "task" ? "active" : "")" @onclick='() => _tab = "task"'><i class="bi bi-clock-history me-1"></i>Attività pianificata</button></li>
+                    <li class="nav-item"><button class="nav-link @(_tab == "file" ? "active" : "")" @onclick='() => _tab = "file"'><i class="bi bi-file-earmark me-1"></i>File</button></li>
+                    <li class="nav-item"><button class="nav-link @(_tab == "grp" ? "active" : "")" @onclick='() => _tab = "grp"'><i class="bi bi-people me-1"></i>Gruppo locale</button></li>
+                    <li class="nav-item"><button class="nav-link @(_tab == "env" ? "active" : "")" @onclick='() => _tab = "env"'><i class="bi bi-terminal me-1"></i>Variabile ambiente</button></li>
+                    <li class="nav-item"><button class="nav-link @(_tab == "raw" ? "active" : "")" @onclick='() => _tab = "raw"'><i class="bi bi-braces me-1"></i>Avanzato (JSON)</button></li>
                 </ul>
 
                 @if (_tab == "reg")
@@ -226,6 +230,165 @@ else
                         </div>
                     </div>
                     <button class="btn btn-sm btn-outline-primary" @onclick="AddRegistry"><i class="bi bi-plus-lg me-1"></i>Aggiungi voce registro</button>
+                }
+                else if (_tab == "svc")
+                {
+                    <div class="row g-2 mb-2">
+                        <div class="col-12 col-md-4">
+                            <label class="form-label small">Nome servizio</label>
+                            <input class="form-control form-control-sm" @bind="_svc.Name" placeholder="es. Spooler" />
+                        </div>
+                        <div class="col-6 col-md-4">
+                            <label class="form-label small">Avvio</label>
+                            <select class="form-select form-select-sm" @bind="_svc.StartupType">
+                                @foreach (var s in new[] { "Unchanged", "Automatic", "AutomaticDelayedStart", "Manual", "Disabled" }) { <option>@s</option> }
+                            </select>
+                        </div>
+                        <div class="col-6 col-md-4">
+                            <label class="form-label small">Stato desiderato</label>
+                            <select class="form-select form-select-sm" @bind="_svc.State">
+                                @foreach (var s in new[] { "Unchanged", "Running", "Stopped" }) { <option>@s</option> }
+                            </select>
+                        </div>
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small">Account logon (opz.)</label>
+                            <input class="form-control form-control-sm" @bind="_svc.Account" placeholder="NT AUTHORITY\LocalService" />
+                        </div>
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small">Nome voce (opz.)</label>
+                            <input class="form-control form-control-sm" @bind="_svc.Label" />
+                        </div>
+                    </div>
+                    <button class="btn btn-sm btn-outline-primary" @onclick="AddService"><i class="bi bi-plus-lg me-1"></i>Aggiungi servizio</button>
+                }
+                else if (_tab == "task")
+                {
+                    <div class="row g-2 mb-2">
+                        <div class="col-12 col-md-4">
+                            <label class="form-label small">Nome attività</label>
+                            <input class="form-control form-control-sm" @bind="_task.Name" />
+                        </div>
+                        <div class="col-6 col-md-4">
+                            <label class="form-label small">Cartella</label>
+                            <input class="form-control form-control-sm" @bind="_task.Path" placeholder="\" />
+                        </div>
+                        <div class="col-6 col-md-2">
+                            <label class="form-label small">Stato</label>
+                            <select class="form-select form-select-sm" @bind="_task.Ensure">
+                                <option>Present</option><option>Absent</option>
+                            </select>
+                        </div>
+                        <div class="col-6 col-md-2">
+                            <label class="form-label small">Abilitazione</label>
+                            <select class="form-select form-select-sm" @bind="_task.State">
+                                @foreach (var s in new[] { "Unchanged", "Enabled", "Disabled" }) { <option>@s</option> }
+                            </select>
+                        </div>
+                        @if (_task.Ensure == "Present")
+                        {
+                            <div class="col-12">
+                                <label class="form-label small">Definizione XML (Task Scheduler)</label>
+                                <textarea class="form-control form-control-sm font-monospace" rows="4" @bind="_task.DefinitionXml" placeholder="&lt;Task&gt;...&lt;/Task&gt;"></textarea>
+                            </div>
+                        }
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small">Nome voce (opz.)</label>
+                            <input class="form-control form-control-sm" @bind="_task.Label" />
+                        </div>
+                    </div>
+                    <button class="btn btn-sm btn-outline-primary" @onclick="AddTask"><i class="bi bi-plus-lg me-1"></i>Aggiungi attività</button>
+                }
+                else if (_tab == "file")
+                {
+                    <div class="row g-2 mb-2">
+                        <div class="col-12 col-md-5">
+                            <label class="form-label small">Percorso destinazione</label>
+                            <input class="form-control form-control-sm" @bind="_file.TargetPath" placeholder="C:\ProgramData\App\config.json" />
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <label class="form-label small">Tipo</label>
+                            <select class="form-select form-select-sm" @bind="_file.ResourceType">
+                                @foreach (var t in new[] { "File", "Directory", "Shortcut" }) { <option>@t</option> }
+                            </select>
+                        </div>
+                        <div class="col-6 col-md-2">
+                            <label class="form-label small">Stato</label>
+                            <select class="form-select form-select-sm" @bind="_file.Ensure">
+                                <option>Present</option><option>Absent</option>
+                            </select>
+                        </div>
+                        <div class="col-6 col-md-2 d-flex align-items-end">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" @bind="_file.Overwrite" id="fileOverwrite" />
+                                <label class="form-check-label small" for="fileOverwrite">Sovrascrivi</label>
+                            </div>
+                        </div>
+                        @if (_file.Ensure == "Present" && _file.ResourceType == "File")
+                        {
+                            <div class="col-6 col-md-3">
+                                <label class="form-label small">Codifica contenuto</label>
+                                <select class="form-select form-select-sm" @bind="_file.ContentEncoding">
+                                    <option>Utf8</option><option>Base64</option>
+                                </select>
+                            </div>
+                            <div class="col-12 col-md-9">
+                                <label class="form-label small">URL sorgente (opz., alternativo al contenuto)</label>
+                                <input class="form-control form-control-sm" @bind="_file.SourceUrl" placeholder="https://..." />
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label small">Contenuto inline (opz.)</label>
+                                <textarea class="form-control form-control-sm font-monospace" rows="3" @bind="_file.Content"></textarea>
+                            </div>
+                        }
+                        @if (_file.Ensure == "Present" && _file.ResourceType == "Shortcut")
+                        {
+                            <div class="col-12 col-md-6">
+                                <label class="form-label small">Eseguibile target</label>
+                                <input class="form-control form-control-sm" @bind="_file.TargetExecutable" placeholder="C:\Program Files\App\app.exe" />
+                            </div>
+                            <div class="col-12 col-md-6">
+                                <label class="form-label small">Argomenti (opz.)</label>
+                                <input class="form-control form-control-sm" @bind="_file.Arguments" />
+                            </div>
+                            <div class="col-12 col-md-6">
+                                <label class="form-label small">Cartella di lavoro (opz.)</label>
+                                <input class="form-control form-control-sm" @bind="_file.WorkingDirectory" />
+                            </div>
+                            <div class="col-12 col-md-6">
+                                <label class="form-label small">Icona (opz.)</label>
+                                <input class="form-control form-control-sm" @bind="_file.IconPath" />
+                            </div>
+                        }
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small">Nome voce (opz.)</label>
+                            <input class="form-control form-control-sm" @bind="_file.Label" />
+                        </div>
+                    </div>
+                    <button class="btn btn-sm btn-outline-primary" @onclick="AddFile"><i class="bi bi-plus-lg me-1"></i>Aggiungi file</button>
+                }
+                else if (_tab == "grp")
+                {
+                    <div class="row g-2 mb-2">
+                        <div class="col-12 col-md-4">
+                            <label class="form-label small">Gruppo locale</label>
+                            <input class="form-control form-control-sm" @bind="_grp.Group" placeholder="es. Administrators" />
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <label class="form-label small">Azione</label>
+                            <select class="form-select form-select-sm" @bind="_grp.Action">
+                                @foreach (var a in new[] { "Add", "Remove", "Replace" }) { <option>@a</option> }
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small">Membri (uno per riga)</label>
+                            <textarea class="form-control form-control-sm" rows="3" @bind="_grp.Members" placeholder="AzureAD\user@contoso.com&#10;S-1-12-1-...&#10;CONTOSO\GruppoIT"></textarea>
+                        </div>
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small">Nome voce (opz.)</label>
+                            <input class="form-control form-control-sm" @bind="_grp.Label" />
+                        </div>
+                    </div>
+                    <button class="btn btn-sm btn-outline-primary" @onclick="AddGroup"><i class="bi bi-plus-lg me-1"></i>Aggiungi membership</button>
                 }
                 else if (_tab == "env")
                 {
@@ -368,6 +531,10 @@ else
 
     private readonly RegForm _reg = new();
     private readonly EnvForm _env = new();
+    private readonly SvcForm _svc = new();
+    private readonly TaskForm _task = new();
+    private readonly FileForm _file = new();
+    private readonly GrpForm _grp = new();
     private readonly RawForm _raw = new();
 
     // assignments
@@ -461,6 +628,80 @@ else
         if (_env.Ensure == "Present") o["value"] = _env.Value ?? "";
         _items.Add(new EditItem { Provider = "EnvironmentVariable", Name = _env.Name.Trim(), PayloadJson = o.ToJsonString() });
         _env.Reset();
+    }
+
+    private void AddService()
+    {
+        if (string.IsNullOrWhiteSpace(_svc.Name)) { Toast.Error("Nome servizio obbligatorio"); return; }
+        var o = new JsonObject
+        {
+            ["name"] = _svc.Name.Trim(),
+            ["startupType"] = _svc.StartupType,
+            ["state"] = _svc.State
+        };
+        if (!string.IsNullOrWhiteSpace(_svc.Account)) o["account"] = _svc.Account.Trim();
+        _items.Add(new EditItem { Provider = "WindowsService", Name = string.IsNullOrWhiteSpace(_svc.Label) ? _svc.Name.Trim() : _svc.Label, PayloadJson = o.ToJsonString() });
+        _svc.Reset();
+    }
+
+    private void AddTask()
+    {
+        if (string.IsNullOrWhiteSpace(_task.Name)) { Toast.Error("Nome attività obbligatorio"); return; }
+        if (_task.Ensure == "Present" && string.IsNullOrWhiteSpace(_task.DefinitionXml)) { Toast.Error("Definizione XML obbligatoria quando lo stato è Present"); return; }
+        var o = new JsonObject
+        {
+            ["name"] = _task.Name.Trim(),
+            ["path"] = string.IsNullOrWhiteSpace(_task.Path) ? "\\" : _task.Path.Trim(),
+            ["ensure"] = _task.Ensure,
+            ["state"] = _task.State
+        };
+        if (_task.Ensure == "Present") o["definitionXml"] = _task.DefinitionXml;
+        _items.Add(new EditItem { Provider = "ScheduledTask", Name = string.IsNullOrWhiteSpace(_task.Label) ? _task.Name.Trim() : _task.Label, PayloadJson = o.ToJsonString() });
+        _task.Reset();
+    }
+
+    private void AddFile()
+    {
+        if (string.IsNullOrWhiteSpace(_file.TargetPath)) { Toast.Error("Percorso destinazione obbligatorio"); return; }
+        if (_file.Ensure == "Present" && _file.ResourceType == "Shortcut" && string.IsNullOrWhiteSpace(_file.TargetExecutable))
+        { Toast.Error("Eseguibile target obbligatorio per uno shortcut"); return; }
+        var o = new JsonObject
+        {
+            ["targetPath"] = _file.TargetPath.Trim(),
+            ["resourceType"] = _file.ResourceType,
+            ["ensure"] = _file.Ensure,
+            ["overwrite"] = _file.Overwrite
+        };
+        if (_file.Ensure == "Present" && _file.ResourceType == "File")
+        {
+            o["contentEncoding"] = _file.ContentEncoding;
+            if (!string.IsNullOrWhiteSpace(_file.SourceUrl)) o["sourceUrl"] = _file.SourceUrl.Trim();
+            if (!string.IsNullOrEmpty(_file.Content)) o["content"] = _file.Content;
+        }
+        if (_file.Ensure == "Present" && _file.ResourceType == "Shortcut")
+        {
+            o["targetExecutable"] = _file.TargetExecutable?.Trim();
+            if (!string.IsNullOrWhiteSpace(_file.Arguments)) o["arguments"] = _file.Arguments.Trim();
+            if (!string.IsNullOrWhiteSpace(_file.WorkingDirectory)) o["workingDirectory"] = _file.WorkingDirectory.Trim();
+            if (!string.IsNullOrWhiteSpace(_file.IconPath)) o["iconPath"] = _file.IconPath.Trim();
+        }
+        _items.Add(new EditItem { Provider = "FileResource", Name = string.IsNullOrWhiteSpace(_file.Label) ? _file.TargetPath.Trim() : _file.Label, PayloadJson = o.ToJsonString() });
+        _file.Reset();
+    }
+
+    private void AddGroup()
+    {
+        if (string.IsNullOrWhiteSpace(_grp.Group)) { Toast.Error("Gruppo obbligatorio"); return; }
+        var members = (_grp.Members ?? "").Replace("\r", "").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (members.Length == 0) { Toast.Error("Almeno un membro obbligatorio"); return; }
+        var o = new JsonObject
+        {
+            ["group"] = _grp.Group.Trim(),
+            ["action"] = _grp.Action,
+            ["members"] = new JsonArray(members.Select(m => (JsonNode?)JsonValue.Create(m)).ToArray())
+        };
+        _items.Add(new EditItem { Provider = "LocalGroupMembership", Name = string.IsNullOrWhiteSpace(_grp.Label) ? _grp.Group.Trim() : _grp.Label, PayloadJson = o.ToJsonString() });
+        _grp.Reset();
     }
 
     private void AddRaw()
@@ -645,6 +886,57 @@ else
         public string Value { get; set; } = "";
         public string Ensure { get; set; } = "Present";
         public void Reset() { Name = Value = ""; Scope = "Machine"; Ensure = "Present"; }
+    }
+
+    private sealed class SvcForm
+    {
+        public string Name { get; set; } = "";
+        public string StartupType { get; set; } = "Unchanged";
+        public string State { get; set; } = "Unchanged";
+        public string Account { get; set; } = "";
+        public string Label { get; set; } = "";
+        public void Reset() { Name = Account = Label = ""; StartupType = State = "Unchanged"; }
+    }
+
+    private sealed class TaskForm
+    {
+        public string Name { get; set; } = "";
+        public string Path { get; set; } = "\\";
+        public string Ensure { get; set; } = "Present";
+        public string State { get; set; } = "Unchanged";
+        public string DefinitionXml { get; set; } = "";
+        public string Label { get; set; } = "";
+        public void Reset() { Name = Label = DefinitionXml = ""; Path = "\\"; Ensure = "Present"; State = "Unchanged"; }
+    }
+
+    private sealed class FileForm
+    {
+        public string TargetPath { get; set; } = "";
+        public string ResourceType { get; set; } = "File";
+        public string Ensure { get; set; } = "Present";
+        public bool Overwrite { get; set; } = true;
+        public string Content { get; set; } = "";
+        public string ContentEncoding { get; set; } = "Utf8";
+        public string SourceUrl { get; set; } = "";
+        public string TargetExecutable { get; set; } = "";
+        public string Arguments { get; set; } = "";
+        public string WorkingDirectory { get; set; } = "";
+        public string IconPath { get; set; } = "";
+        public string Label { get; set; } = "";
+        public void Reset()
+        {
+            TargetPath = Content = SourceUrl = TargetExecutable = Arguments = WorkingDirectory = IconPath = Label = "";
+            ResourceType = "File"; Ensure = "Present"; ContentEncoding = "Utf8"; Overwrite = true;
+        }
+    }
+
+    private sealed class GrpForm
+    {
+        public string Group { get; set; } = "";
+        public string Action { get; set; } = "Add";
+        public string Members { get; set; } = "";
+        public string Label { get; set; } = "";
+        public void Reset() { Group = Members = Label = ""; Action = "Add"; }
     }
 
     private sealed class RawForm
