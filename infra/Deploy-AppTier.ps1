@@ -55,6 +55,7 @@ param(
 
     # ----- App registration -----
     [string]$AppRegistrationName = 'pf-dev-api',
+    [string]$AdminAppRegistrationName = 'cpm-dev-admin',
 
     [switch]$SkipCode,
     [switch]$SkipInfra
@@ -122,6 +123,16 @@ $clientSecret = az ad app credential reset --id $app.appId --display-name 'deplo
 $clientId = $app.appId
 Write-Ok 'Client secret (re)generated.'
 
+# Admin portal SSO app (confidential client) needs its own client secret, otherwise
+# the OIDC code-redeem fails with MsalClientException (Client_Credentials_Required).
+$adminApp = az ad app list --display-name $AdminAppRegistrationName --query "[0].appId" -o tsv
+if ($adminApp) {
+    $adminClientId = $adminApp
+    $adminClientSecret = az ad app credential reset --id $adminApp --display-name 'deploy-secret' --years 2 --query password -o tsv
+    Write-Ok "Admin portal app: $adminClientId (secret regenerated)."
+}
+else { $adminClientId = ''; $adminClientSecret = ''; Write-Host "  ! Admin app reg '$AdminAppRegistrationName' not found - portal SSO disabled." -ForegroundColor DarkYellow }
+
 # ============================================================
 # 5. Database on the shared SQL Server
 # ============================================================
@@ -155,6 +166,7 @@ else {
         --template-file (Join-Path $infraDir 'main.apptier.bicep') `
         --parameters (Join-Path $infraDir "main.apptier.$EnvironmentName.bicepparam") `
         --parameters clientSecret=$clientSecret tenantId=$TenantId clientId=$clientId `
+                     adminClientId=$adminClientId adminClientSecret=$adminClientSecret `
                      location=$Location sqlServerFqdn=$sqlFqdn sqlDatabaseName=$SqlDatabaseName `
                      integrationSubnetId=$subnetId eventGridTopicEndpoint=$eventGridEndpoint `
         --query properties.outputs -o json | ConvertFrom-Json
