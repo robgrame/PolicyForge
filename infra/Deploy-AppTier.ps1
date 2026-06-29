@@ -187,9 +187,12 @@ foreach ($roleValue in $GraphAppRoles) {
         --query "value[?appRoleId=='$roleId'] | [0].id" -o tsv 2>$null
     if (-not $existing) {
         $body = (@{ principalId = $uamiPrincipalId; resourceId = $graphSp.id; appRoleId = $roleId } | ConvertTo-Json -Compress)
+        $bodyFile = Join-Path $env:TEMP "pf-graph-role.json"
+        Set-Content -Path $bodyFile -Value $body -Encoding utf8 -NoNewline
         az rest --method POST `
             --uri "https://graph.microsoft.com/v1.0/servicePrincipals/$uamiPrincipalId/appRoleAssignments" `
-            --headers "Content-Type=application/json" --body $body -o none
+            --headers "Content-Type=application/json" --body "@$bodyFile" -o none
+        if ($LASTEXITCODE -ne 0) { throw "Failed to grant Graph app role $roleValue" }
         Write-Ok "Granted $roleValue"
     }
     else { Write-Ok "$roleValue already granted." }

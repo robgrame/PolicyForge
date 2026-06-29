@@ -215,11 +215,16 @@ resource adminAppService 'Microsoft.Web/sites@2023-12-01' = {
 }
 
 // ============================================================
-// App Configuration (canonical store created by the infra-tier template).
-// Referenced as existing so the app-tier never creates a duplicate store.
+// App Configuration store. Created here when deploying the app tier on shared
+// infrastructure (no infra-tier present); idempotent if it already exists.
 // ============================================================
-resource appConfig 'Microsoft.AppConfiguration/configurationStores@2023-03-01' existing = {
+resource appConfig 'Microsoft.AppConfiguration/configurationStores@2023-03-01' = {
   name: '${prefix}-config'
+  location: location
+  tags: tags
+  sku: {
+    name: sku.appConfig.name
+  }
 }
 
 // App Configuration Data Reader for the API (UAMI) and Admin portal (system-assigned).
