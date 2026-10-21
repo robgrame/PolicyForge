@@ -1,7 +1,7 @@
 # PolicyForge
 
 > ⚠️ **Repository in evoluzione.** PolicyForge nasce come *clone evolutivo* di
-> PolicyForge e lo generalizza in una **piattaforma universale di desired-state
+> ChromePolicyManager e lo generalizza in una **piattaforma universale di desired-state
 > configuration per device Intune** (qualunque ADMX + registry, servizi Windows, scheduled
 > task, file, gruppi locali, variabili d'ambiente — stile *Group Policy Preferences*).
 > Il codice qui sotto è ancora quello Chrome-specifico ereditato; il refactor è descritto
